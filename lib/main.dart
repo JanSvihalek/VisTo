@@ -6,11 +6,12 @@ import 'dart:io';
 import 'package:intl/intl.dart';
 import 'dart:html' as html;
 
-// --- PŘIDANÉ KNIHOVNY PRO PDF ---
+// --- KNIHOVNY PRO PDF ---
 import 'package:pdf/pdf.dart';
 import 'package:pdf/widgets.dart' as pw;
 import 'package:printing/printing.dart';
 
+// --- FIREBASE IMPORTY ---
 import 'package:firebase_core/firebase_core.dart';
 import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:firebase_storage/firebase_storage.dart';
@@ -21,11 +22,11 @@ final ValueNotifier<ThemeMode> themeNotifier = ValueNotifier(ThemeMode.light);
 void main() async {
   WidgetsFlutterBinding.ensureInitialized();
   await Firebase.initializeApp(options: DefaultFirebaseOptions.currentPlatform);
-  runApp(const FastCheckApp());
+  runApp(const VistoApp());
 }
 
-class FastCheckApp extends StatelessWidget {
-  const FastCheckApp({super.key});
+class VistoApp extends StatelessWidget {
+  const VistoApp({super.key});
 
   @override
   Widget build(BuildContext context) {
@@ -34,7 +35,7 @@ class FastCheckApp extends StatelessWidget {
       builder: (_, ThemeMode currentMode, __) {
         return MaterialApp(
           debugShowCheckedModeBanner: false,
-          title: 'FastCheck',
+          title: 'Visto',
           themeMode: currentMode,
           theme: ThemeData(
             brightness: Brightness.light,
@@ -78,7 +79,7 @@ class _MainScreenState extends State<MainScreen> {
             children: [
               Icon(Icons.bolt, color: Theme.of(context).colorScheme.primary, size: 28),
               const SizedBox(width: 4),
-              Text('FastCheck', style: TextStyle(fontWeight: FontWeight.w900, color: isDark ? Colors.white : Colors.black87, letterSpacing: -0.5)),
+              Text('Visto', style: TextStyle(fontWeight: FontWeight.w900, color: isDark ? Colors.white : Colors.black87, letterSpacing: -0.5)),
             ],
           ),
         ),
@@ -169,8 +170,14 @@ class _MainWizardPageState extends State<MainWizardPage> {
       imageUrls.add(await ref.getDownloadURL());
     }
 
-    await FirebaseFirestore.instanceFor(app: Firebase.app(), databaseId: 'fastcheck').collection('zakazky').doc(zakazkaId).set({
-      'cislo_zakazky': zakazkaId, 'spz': _spzController.text.trim(), 'checklist': _checklist, 'poznamky': _poznamkyController.text.trim(), 'fotografie_urls': imageUrls, 'cas_prijeti': FieldValue.serverTimestamp(),
+    // OPRAVENO: Používá čistou výchozí databázi (bez 'fastcheck')
+    await FirebaseFirestore.instance.collection('zakazky').doc(zakazkaId).set({
+      'cislo_zakazky': zakazkaId, 
+      'spz': _spzController.text.trim(), 
+      'checklist': _checklist, 
+      'poznamky': _poznamkyController.text.trim(), 
+      'fotografie_urls': imageUrls, 
+      'cas_prijeti': FieldValue.serverTimestamp(),
     });
   }
 
@@ -214,7 +221,7 @@ class _MainWizardPageState extends State<MainWizardPage> {
     );
   }
 
-  Widget _buildInfoStep(bool isDark) => SingleChildScrollView(padding: const EdgeInsets.all(30), child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [const Text('Základní údaje', style: TextStyle(fontSize: 32, fontWeight: FontWeight.bold)), const SizedBox(height: 40), _buildInput('Číslo zakázky', Icons.car_repair, _zakazkaController, isDark, keyboard: TextInputType.number), const SizedBox(height: 20), _buildInput('SPZ vozidla', Icons.abc, _spzController, isDark, caps: true)]));
+  Widget _buildInfoStep(bool isDark) => SingleChildScrollView(padding: const EdgeInsets.all(30), child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [const Text('Základní údaje', style: TextStyle(fontSize: 32, fontWeight: FontWeight.bold)), const SizedBox(height: 40), _buildInput('Číslo zakázky', Icons.tag, _zakazkaController, isDark, keyboard: TextInputType.number), const SizedBox(height: 20), _buildInput('SPZ vozidla', Icons.directions_car, _spzController, isDark, caps: true)]));
   Widget _buildPhotoStep(bool isDark) => Padding(padding: const EdgeInsets.all(30), child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [const Text('Fotky vozu', style: TextStyle(fontSize: 32, fontWeight: FontWeight.bold)), const SizedBox(height: 20), Expanded(child: GridView.builder(gridDelegate: const SliverGridDelegateWithFixedCrossAxisCount(crossAxisCount: 2, crossAxisSpacing: 15, mainAxisSpacing: 15), itemCount: _images.length + 1, itemBuilder: (context, index) { if (index == _images.length) return InkWell(onTap: _takePhoto, child: Container(decoration: BoxDecoration(color: isDark ? Colors.blue.withOpacity(0.1) : Colors.blue.withOpacity(0.05), borderRadius: BorderRadius.circular(20), border: Border.all(color: Colors.blue.withOpacity(0.3), width: 2)), child: const Icon(Icons.add_a_photo_rounded, size: 40, color: Colors.blue))); return Stack(fit: StackFit.expand, children: [ClipRRect(borderRadius: BorderRadius.circular(20), child: kIsWeb ? Image.network(_images[index].path, fit: BoxFit.cover) : Image.file(File(_images[index].path), fit: BoxFit.cover)), Positioned(top: 8, right: 8, child: GestureDetector(onTap: () => setState(() => _images.removeAt(index)), child: const CircleAvatar(radius: 12, backgroundColor: Colors.white, child: Icon(Icons.close, size: 16, color: Colors.red))))]); }))]));
   Widget _buildCheckStep(bool isDark) => SingleChildScrollView(padding: const EdgeInsets.all(30), child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [const Text('Checklist', style: TextStyle(fontSize: 32, fontWeight: FontWeight.bold)), const SizedBox(height: 20), ..._checklist.keys.map((key) => Card(elevation: 0, color: isDark ? const Color(0xFF1E1E1E) : Colors.white, shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(15), side: BorderSide(color: isDark ? Colors.grey[800]! : Colors.grey[200]!)), child: CheckboxListTile(title: Text(key), value: _checklist[key], onChanged: (v) => setState(() => _checklist[key] = v!), activeColor: Colors.blue))), const SizedBox(height: 20), TextField(controller: _poznamkyController, maxLines: 3, decoration: InputDecoration(hintText: 'Poznámky...', filled: true, fillColor: isDark ? const Color(0xFF1E1E1E) : Colors.white, border: OutlineInputBorder(borderRadius: BorderRadius.circular(15), borderSide: BorderSide.none)))]));
   Widget _buildBottomPanel(bool isDark) => Container(padding: const EdgeInsets.fromLTRB(30, 20, 30, 30), decoration: BoxDecoration(color: isDark ? const Color(0xFF121212) : Colors.white, boxShadow: [BoxShadow(color: Colors.black.withOpacity(0.05), blurRadius: 10, offset: const Offset(0, -5))]), child: SafeArea(child: Column(mainAxisSize: MainAxisSize.min, children: [Row(children: List.generate(_totalPages, (index) => Expanded(child: Container(height: 4, margin: const EdgeInsets.symmetric(horizontal: 4), decoration: BoxDecoration(color: index <= _currentPage ? Colors.blue : Colors.grey[300], borderRadius: BorderRadius.circular(2)))))), const SizedBox(height: 20), Row(children: [if (_currentPage > 0) IconButton.filledTonal(onPressed: _moveBack, icon: const Icon(Icons.arrow_back_ios_new_rounded), padding: const EdgeInsets.all(15)), if (_currentPage > 0) const SizedBox(width: 15), Expanded(child: ElevatedButton(onPressed: _moveNext, style: ElevatedButton.styleFrom(backgroundColor: Colors.blue, foregroundColor: Colors.white, padding: const EdgeInsets.symmetric(vertical: 18), shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(18))), child: Text(_currentPage == _totalPages - 1 ? 'DOKONČIT' : 'DALŠÍ KROK', style: const TextStyle(fontWeight: FontWeight.bold))))])])));
@@ -239,7 +246,8 @@ class HistoryPage extends StatelessWidget {
         const Padding(padding: EdgeInsets.fromLTRB(30, 30, 30, 10), child: Text('Historie', style: TextStyle(fontSize: 32, fontWeight: FontWeight.bold))),
         Expanded(
           child: StreamBuilder<QuerySnapshot>(
-            stream: FirebaseFirestore.instanceFor(app: Firebase.app(), databaseId: 'fastcheck').collection('zakazky').orderBy('cas_prijeti', descending: true).snapshots(),
+            // OPRAVENO: Používá čistou výchozí databázi (bez 'fastcheck')
+            stream: FirebaseFirestore.instance.collection('zakazky').orderBy('cas_prijeti', descending: true).snapshots(),
             builder: (context, snapshot) {
               if (snapshot.hasError) return Center(child: Text("Chyba databáze: ${snapshot.error}"));
               if (!snapshot.hasData) return const Center(child: CircularProgressIndicator());
@@ -315,16 +323,12 @@ class HistoryPage extends StatelessWidget {
     );
   }
 
-  // --- NOVÁ FUNKCE PRO GENEROVÁNÍ PDF ---
   Future<void> _exportToPdf(BuildContext context, Map<String, dynamic> data) async {
-    // Ukáže uživateli, že se na tom pracuje
     ScaffoldMessenger.of(context).showSnackBar(
       const SnackBar(content: Text('Generuji PDF protokol...'), duration: Duration(seconds: 1)),
     );
 
     final pdf = pw.Document();
-
-    // Stáhneme font, který umí háčky a čárky (velmi důležité pro češtinu v PDF)
     final fontRegular = await PdfGoogleFonts.robotoRegular();
     final fontBold = await PdfGoogleFonts.robotoBold();
 
@@ -336,58 +340,32 @@ class HistoryPage extends StatelessWidget {
           return pw.Column(
             crossAxisAlignment: pw.CrossAxisAlignment.start,
             children: [
-              // Hlavička
               pw.Header(
                 level: 0,
                 child: pw.Row(
                   mainAxisAlignment: pw.MainAxisAlignment.spaceBetween,
                   children: [
-                    pw.Text('FASTCHECK', style: pw.TextStyle(font: fontBold, fontSize: 28, color: PdfColors.blue800)),
+                    pw.Text('VISTO', style: pw.TextStyle(font: fontBold, fontSize: 28, color: PdfColors.blue800)),
                     pw.Text('Protokol o příjmu', style: pw.TextStyle(font: fontRegular, fontSize: 20, color: PdfColors.grey600)),
                   ]
                 )
               ),
               pw.SizedBox(height: 20),
-
-              // Informace o zakázce
               pw.Container(
                 padding: const pw.EdgeInsets.all(15),
-                decoration: pw.BoxDecoration(
-                  color: PdfColors.grey100,
-                  borderRadius: const pw.BorderRadius.all(pw.Radius.circular(10)),
-                ),
+                decoration: pw.BoxDecoration(color: PdfColors.grey100, borderRadius: const pw.BorderRadius.all(pw.Radius.circular(10))),
                 child: pw.Column(
                   crossAxisAlignment: pw.CrossAxisAlignment.start,
                   children: [
-                    pw.Row(
-                      mainAxisAlignment: pw.MainAxisAlignment.spaceBetween,
-                      children: [
-                        pw.Text('Zakázka č.:', style: pw.TextStyle(font: fontRegular, fontSize: 14)),
-                        pw.Text(data['cislo_zakazky'].toString(), style: pw.TextStyle(font: fontBold, fontSize: 16)),
-                      ]
-                    ),
+                    pw.Row(mainAxisAlignment: pw.MainAxisAlignment.spaceBetween, children: [pw.Text('Zakázka č.:', style: pw.TextStyle(font: fontRegular, fontSize: 14)), pw.Text(data['cislo_zakazky'].toString(), style: pw.TextStyle(font: fontBold, fontSize: 16))]),
                     pw.Divider(color: PdfColors.grey300),
-                    pw.Row(
-                      mainAxisAlignment: pw.MainAxisAlignment.spaceBetween,
-                      children: [
-                        pw.Text('SPZ vozidla:', style: pw.TextStyle(font: fontRegular, fontSize: 14)),
-                        pw.Text(data['spz'].toString(), style: pw.TextStyle(font: fontBold, fontSize: 16)),
-                      ]
-                    ),
+                    pw.Row(mainAxisAlignment: pw.MainAxisAlignment.spaceBetween, children: [pw.Text('SPZ vozidla:', style: pw.TextStyle(font: fontRegular, fontSize: 14)), pw.Text(data['spz'].toString(), style: pw.TextStyle(font: fontBold, fontSize: 16))]),
                     pw.Divider(color: PdfColors.grey300),
-                    pw.Row(
-                      mainAxisAlignment: pw.MainAxisAlignment.spaceBetween,
-                      children: [
-                        pw.Text('Datum a čas příjmu:', style: pw.TextStyle(font: fontRegular, fontSize: 14)),
-                        pw.Text(_formatDate(data['cas_prijeti']), style: pw.TextStyle(font: fontBold, fontSize: 14)),
-                      ]
-                    ),
+                    pw.Row(mainAxisAlignment: pw.MainAxisAlignment.spaceBetween, children: [pw.Text('Datum a čas příjmu:', style: pw.TextStyle(font: fontRegular, fontSize: 14)), pw.Text(_formatDate(data['cas_prijeti']), style: pw.TextStyle(font: fontBold, fontSize: 14))]),
                   ]
                 )
               ),
               pw.SizedBox(height: 30),
-
-              // Checklist
               pw.Text('Stav vozidla (Checklist)', style: pw.TextStyle(font: fontBold, fontSize: 18)),
               pw.SizedBox(height: 15),
               ...(data['checklist'] as Map<String, dynamic>).entries.map((e) {
@@ -395,14 +373,7 @@ class HistoryPage extends StatelessWidget {
                   padding: const pw.EdgeInsets.only(bottom: 8),
                   child: pw.Row(
                     children: [
-                      // Vykreslíme malý barevný puntík místo složité ikony
-                      pw.Container(
-                        width: 12, height: 12,
-                        decoration: pw.BoxDecoration(
-                          shape: pw.BoxShape.circle,
-                          color: e.value ? PdfColors.green : PdfColors.red,
-                        )
-                      ),
+                      pw.Container(width: 12, height: 12, decoration: pw.BoxDecoration(shape: pw.BoxShape.circle, color: e.value ? PdfColors.green : PdfColors.red)),
                       pw.SizedBox(width: 10),
                       pw.Text(e.key, style: pw.TextStyle(font: fontRegular, fontSize: 14)),
                       pw.Spacer(),
@@ -411,12 +382,9 @@ class HistoryPage extends StatelessWidget {
                   )
                 );
               }),
-              
               pw.SizedBox(height: 20),
               pw.Divider(),
               pw.SizedBox(height: 20),
-
-              // Poznámky
               if (data['poznamky'] != null && data['poznamky'].toString().isNotEmpty) ...[
                 pw.Text('Poznámky k příjmu:', style: pw.TextStyle(font: fontBold, fontSize: 16)),
                 pw.SizedBox(height: 10),
@@ -424,21 +392,14 @@ class HistoryPage extends StatelessWidget {
               ] else ...[
                 pw.Text('Bez dodatečných poznámek.', style: pw.TextStyle(font: fontRegular, fontSize: 12, color: PdfColors.grey600)),
               ],
-              
               pw.Spacer(),
-              
-              // Patička
-              pw.Center(
-                child: pw.Text('Vygenerováno aplikací FastCheck', style: pw.TextStyle(font: fontRegular, fontSize: 10, color: PdfColors.grey500))
-              )
+              pw.Center(child: pw.Text('Vygenerováno aplikací Visto', style: pw.TextStyle(font: fontRegular, fontSize: 10, color: PdfColors.grey500)))
             ],
           );
         },
       ),
     );
 
-    // Otevře dialog pro sdílení / uložení PDF 
-    // (Na webu to stáhne soubor nebo otevře náhled, na mobilu to nabídne sdílení)
     await Printing.sharePdf(
       bytes: await pdf.save(),
       filename: 'Protokol_${data['cislo_zakazky']}.pdf',
