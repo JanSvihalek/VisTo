@@ -17,12 +17,35 @@ import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:firebase_storage/firebase_storage.dart';
 import 'firebase_options.dart'; // Soubor generovaný FlutterFire CLI
 
+// --- GLOBÁLNÍ KONSTANTY ---
+// Definice požadovaných fotografií s jejich popisy a ikonami
+const Map<String, dynamic> photoCategories = {
+  'karoserie': {
+    'label': 'Karoserie (celkový pohled)',
+    'icon': Icons.directions_car_rounded,
+  },
+  'disky': {'label': 'Disky a kola', 'icon': Icons.tire_repair_rounded},
+  'sklo': {'label': 'Čelní sklo', 'icon': Icons.branding_watermark_rounded},
+  'nadrz': {'label': 'Stav nádrže', 'icon': Icons.local_gas_station_rounded},
+  'tachometr': {
+    'label': 'Tachometr (ujetá vzdálenost)',
+    'icon': Icons.speed_rounded,
+  },
+  'stk': {'label': 'Nálepka STK', 'icon': Icons.check_circle_outline_rounded},
+};
+
 // --- GLOBÁLNÍ STAV ---
+// ValueNotifier pro správu světlého/tmavého režimu v celé aplikaci
 final ValueNotifier<ThemeMode> themeNotifier = ValueNotifier(ThemeMode.light);
 
 void main() async {
+  // Inicializace Flutter vazeb - nutné pro asynchronní operace před runApp
   WidgetsFlutterBinding.ensureInitialized();
+
+  // Inicializace Firebase aplikace s nastavením pro konkrétní platformu
   await Firebase.initializeApp(options: DefaultFirebaseOptions.currentPlatform);
+
+  // Spuštění hlavní aplikace
   runApp(const VistoApp());
 }
 
@@ -35,34 +58,45 @@ class VistoApp extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
+    // ValueListenableBuilder naslouchá změnám v themeNotifieru
     return ValueListenableBuilder<ThemeMode>(
       valueListenable: themeNotifier,
       builder: (_, ThemeMode currentMode, __) {
         return MaterialApp(
-          debugShowCheckedModeBanner: false,
-          title: 'Visto',
+          debugShowCheckedModeBanner: false, // Skryje nápis "DEBUG" v rohu
+          title:
+              'Visto', // Název aplikace (např. v seznamu spuštěných aplikací)
+          // Nastavení tématu pro světlý režim
           theme: ThemeData(
             brightness: Brightness.light,
             colorScheme: ColorScheme.fromSeed(
-              seedColor: const Color(0xFF0061FF),
+              seedColor: const Color(0xFF0061FF), // Základní modrá barva
               primary: const Color(0xFF0061FF),
-              surface: const Color(0xFFFBFDFF),
+              surface: const Color(0xFFFBFDFF), // Barva pozadí
             ),
-            useMaterial3: true,
-            fontFamily: 'Roboto',
+            useMaterial3: true, // Použití moderního Material 3 designu
+            fontFamily: 'Roboto', // Výchozí písmo
           ),
+
+          // Nastavení tématu pro tmavý režim
           darkTheme: ThemeData(
             brightness: Brightness.dark,
             colorScheme: ColorScheme.fromSeed(
               brightness: Brightness.dark,
-              seedColor: const Color(0xFF4D94FF),
+              seedColor: const Color(
+                0xFF4D94FF,
+              ), // Světlejší modrá pro tmavý režim
               primary: const Color(0xFF4D94FF),
-              surface: const Color(0xFF121212),
+              surface: const Color(0xFF121212), // Tmavé pozadí
             ),
             useMaterial3: true,
             fontFamily: 'Roboto',
           ),
+
+          // Aktuálně vybraný režim tématu
           themeMode: currentMode,
+
+          // Úvodní obrazovka
           home: const MainScreen(),
         );
       },
@@ -71,7 +105,7 @@ class VistoApp extends StatelessWidget {
 }
 
 // ==============================================================================
-// HLAVNÍ OBRAZOVKA S NAVIGACÍ
+// HLAVNÍ OBRAZOVKA S NAVIGACÍ (SCAFFOLD)
 // ==============================================================================
 
 class MainScreen extends StatefulWidget {
@@ -81,30 +115,38 @@ class MainScreen extends StatefulWidget {
 }
 
 class _MainScreenState extends State<MainScreen> {
+  // Index aktuálně vybrané stránky v NavigationBaru
   int _currentIndex = 0;
+
+  // Seznam stránek pro přepínání
   final List<Widget> _pages = [
-    const MainWizardPage(),
-    const HistoryPage(), // Změněno na StatefulWidget kvůli vyhledávání
+    const MainWizardPage(), // Stránka pro nový příjem (Průvodce)
+    const HistoryPage(), // Stránka s historií zakázek
   ];
 
   @override
   Widget build(BuildContext context) {
+    // Zjištění, zda je aktivní tmavý režim
     final isDark = Theme.of(context).brightness == Brightness.dark;
 
     return Scaffold(
       backgroundColor: Theme.of(context).colorScheme.surface,
+
+      // Horní lišta aplikace (AppBar)
       appBar: AppBar(
         title: FittedBox(
           fit: BoxFit.scaleDown,
           child: Row(
             mainAxisSize: MainAxisSize.min,
             children: [
+              // Ikonka blesku v primární barvě
               Icon(
                 Icons.bolt,
                 color: Theme.of(context).colorScheme.primary,
                 size: 28,
               ),
               const SizedBox(width: 4),
+              // Tučný název aplikace s upraveným prostrkáním (letterSpacing)
               Text(
                 'Visto',
                 style: TextStyle(
@@ -116,31 +158,40 @@ class _MainScreenState extends State<MainScreen> {
             ],
           ),
         ),
-        centerTitle: true,
-        backgroundColor: Colors.transparent,
-        elevation: 0,
+        centerTitle: true, // Vycentrování nadpisu
+        backgroundColor: Colors.transparent, // Průhledné pozadí
+        elevation: 0, // Bez stínu
         actions: [
+          // Tlačítko pro přepínání světlého/tmavého režimu
           IconButton(
             icon: Icon(
               isDark ? Icons.light_mode : Icons.dark_mode,
               color: isDark ? Colors.amber : Colors.black54,
             ),
             onPressed: () {
+              // Změna hodnoty v globálním notifieru
               themeNotifier.value = isDark ? ThemeMode.light : ThemeMode.dark;
             },
           ),
           const SizedBox(width: 8),
         ],
       ),
+
+      // Hlavní obsah obrazovky
       body: IndexedStack(index: _currentIndex, children: _pages),
+
+      // Spodní navigační lišta (NavigationBar)
       bottomNavigationBar: NavigationBar(
         selectedIndex: _currentIndex,
         onDestinationSelected: (index) {
+          // Změna indexu a překreslení obrazovky
           setState(() {
             _currentIndex = index;
           });
         },
+        // Mírně odlišná barva pozadí pro tmavý režim
         backgroundColor: isDark ? const Color(0xFF1A1A1A) : Colors.white,
+        // Barva indikátoru vybrané položky
         indicatorColor: Theme.of(context).colorScheme.primary.withOpacity(0.2),
         destinations: const [
           NavigationDestination(
@@ -160,7 +211,7 @@ class _MainScreenState extends State<MainScreen> {
 }
 
 // ==============================================================================
-// STRÁNKA PRŮVODCE NOVÝM PŘÍJMEM
+// STRÁNKA PRŮVODCE NOVÝM PŘÍJMEM (WIZARD)
 // ==============================================================================
 
 class MainWizardPage extends StatefulWidget {
@@ -170,21 +221,24 @@ class MainWizardPage extends StatefulWidget {
 }
 
 class _MainWizardPageState extends State<MainWizardPage> {
+  // Kontroler pro PageView (přepínání kroků)
   final PageController _pageController = PageController();
   int _currentPage = 0;
-  final int _totalPages = 3;
-  bool _isUploading = false;
+  final int _totalPages = 3; // Celkový počet kroků
+  bool _isUploading = false; // Příznak probíhajícího nahrávání do Firebase
 
   // --- KONTROLERY PRO TEXTOVÁ POLE ---
   final _zakazkaController = TextEditingController();
   final _spzController = TextEditingController();
-  final _vinController = TextEditingController();
+  final _vinController = TextEditingController(); // NOVÉ: Kontroler pro VIN
   final _poznamkyController = TextEditingController();
 
-  final List<XFile> _images = [];
-  final ImagePicker _picker = ImagePicker();
+  // --- STAVOVÉ PROMĚNNÉ ---
+  // NOVÉ: Strukturovaný seznam pořízených fotografií
+  final Map<String, XFile?> _categoryImages = {};
+  final ImagePicker _picker = ImagePicker(); // Nástroj pro výběr/pořízení fotek
 
-  // --- DATA PRO KROK 3: Stav vozidla ---
+  // DATA PRO KROK 3: Stav vozidla
   String? _vybranePoskozeni;
   final List<String> _poskozeniMoznosti = [
     'Žádné',
@@ -202,10 +256,9 @@ class _MainWizardPageState extends State<MainWizardPage> {
   final _pneuLZController = TextEditingController();
   final _pneuPZController = TextEditingController();
 
-  // NOVÉ: Tachometr a stav nádrže
-  final _tachometrController = TextEditingController();
-  double _stavNadrze = 50.0; // Výchozí hodnota slideru 50%
+  // --- LOGIKA POSUNU V PRŮVODCI ---
 
+  // Posun na další krok nebo dokončení nahrávání
   void _moveNext() {
     FocusScope.of(context).unfocus();
     if (_currentPage < _totalPages - 1) {
@@ -218,6 +271,7 @@ class _MainWizardPageState extends State<MainWizardPage> {
     }
   }
 
+  // Posun na předchozí krok
   void _moveBack() {
     FocusScope.of(context).unfocus();
     _pageController.previousPage(
@@ -226,8 +280,13 @@ class _MainWizardPageState extends State<MainWizardPage> {
     );
   }
 
+  // --- LOGIKA NAHRÁVÁNÍ DO FIREBASE ---
+
+  // Funkce obalující nahrávání, ukazuje načítací overlay a SnackBar
   Future<void> _startDirectUpload() async {
-    setState(() => _isUploading = true);
+    setState(() {
+      _isUploading = true;
+    });
     try {
       await _uploadToFirebase();
       if (mounted) {
@@ -249,34 +308,47 @@ class _MainWizardPageState extends State<MainWizardPage> {
         );
       }
     } finally {
-      if (mounted) setState(() => _isUploading = false);
+      if (mounted) {
+        setState(() {
+          _isUploading = false;
+        });
+      }
     }
   }
 
+  // Hlavní asynchronní funkce pro nahrávání do Storage a Firestore
   Future<void> _uploadToFirebase() async {
-    List<String> imageUrls = [];
+    // NOVÉ: Strukturovaná mapa pro URL adresy fotek
+    final Map<String, String> imageUrlsByCategory = {};
     String zakazkaId = _zakazkaController.text.trim().isEmpty
         ? 'ID_${DateTime.now().millisecondsSinceEpoch}'
         : _zakazkaController.text.trim();
 
-    for (int i = 0; i < _images.length; i++) {
-      XFile image = _images[i];
-      String fileName = 'foto_${DateTime.now().millisecondsSinceEpoch}_$i.jpg';
-      Reference ref = FirebaseStorage.instance.ref().child(
-        'zakazky/$zakazkaId/$fileName',
-      );
-      await ref.putData(await image.readAsBytes());
-      imageUrls.add(await ref.getDownloadURL());
+    // 1. Nahrávání strukturovaných fotografií do Firebase Storage
+    for (var entry in _categoryImages.entries) {
+      final categoryKey = entry.key;
+      final image = entry.value;
+
+      if (image != null) {
+        // Název souboru obsahuje kategorii a timestamp
+        String fileName =
+            '${categoryKey}_${DateTime.now().millisecondsSinceEpoch}.jpg';
+        Reference ref = FirebaseStorage.instance.ref().child(
+          'zakazky/$zakazkaId/$fileName',
+        );
+
+        await ref.putData(await image.readAsBytes());
+        String downloadUrl = await ref.getDownloadURL();
+        imageUrlsByCategory[categoryKey] = downloadUrl;
+      }
     }
 
-    // Ukládání všech dat včetně tachometru a nádrže
+    // 2. Nahrávání dat do Cloud Firestore
     await FirebaseFirestore.instance.collection('zakazky').doc(zakazkaId).set({
       'cislo_zakazky': zakazkaId,
       'spz': _spzController.text.trim(),
-      'vin': _vinController.text.trim(),
+      'vin': _vinController.text.trim(), // NOVÉ: Uložení VIN do databáze
       'stav_vozidla': {
-        'tachometr': _tachometrController.text.trim(),
-        'nadrz': _stavNadrze,
         'poskozeni': _vybranePoskozeni ?? 'Neuvedeno',
         'stk_mesic': _stkMesicController.text.trim(),
         'stk_rok': _stkRokController.text.trim(),
@@ -286,17 +358,21 @@ class _MainWizardPageState extends State<MainWizardPage> {
         'pneu_pz': _pneuPZController.text.trim(),
       },
       'poznamky': _poznamkyController.text.trim(),
-      'fotografie_urls': imageUrls,
+      'fotografie_urls': imageUrlsByCategory, // NOVÉ: Uložení mapy URL adres
       'cas_prijeti': FieldValue.serverTimestamp(),
     });
   }
 
+  // Vymaže formulář a vrátí průvodce na začátek
   void _resetForm() {
     _zakazkaController.clear();
     _spzController.clear();
-    _vinController.clear();
+    _vinController.clear(); // NOVÉ: Vyčištění VIN
     _poznamkyController.clear();
-    _images.clear();
+    // NOVÉ: Vyčištění strukturovaných obrázků
+    _categoryImages.clear();
+
+    // Vyčištění polí pro krok 3
     _vybranePoskozeni = null;
     _stkMesicController.clear();
     _stkRokController.clear();
@@ -305,22 +381,26 @@ class _MainWizardPageState extends State<MainWizardPage> {
     _pneuLZController.clear();
     _pneuPZController.clear();
 
-    // Vyčištění tachometru a nádrže
-    _tachometrController.clear();
-    _stavNadrze = 50.0;
-
-    setState(() => _currentPage = 0);
+    setState(() {
+      _currentPage = 0;
+    });
     _pageController.jumpToPage(0);
   }
 
-  Future<void> _takePhoto() async {
+  // --- LOGIKA POŘÍZENÍ FOTKY (upravena o kategorii) ---
+  Future<void> _takePhoto(String categoryKey) async {
     final XFile? photo = await _picker.pickImage(
       source: ImageSource.camera,
       imageQuality: 70,
     );
-    if (photo != null) setState(() => _images.add(photo));
+    if (photo != null) {
+      setState(() {
+        _categoryImages[categoryKey] = photo;
+      });
+    }
   }
 
+  // --- LOGIKA SKENOVÁNÍ TEXTU (OCR) ---
   Future<void> _scanText(
     TextEditingController controller,
     bool numbersOnly,
@@ -329,7 +409,7 @@ class _MainWizardPageState extends State<MainWizardPage> {
       ScaffoldMessenger.of(context).showSnackBar(
         const SnackBar(
           content: Text(
-            'Skenování pomocí AI funguje pouze v nainstalované aplikaci.',
+            'Skenování pomocí AI funguje pouze v nainstalované aplikaci (APK/iOS), nikoliv v prohlížeči.',
           ),
           backgroundColor: Colors.orange,
           duration: Duration(seconds: 4),
@@ -337,21 +417,28 @@ class _MainWizardPageState extends State<MainWizardPage> {
       );
       return;
     }
+
     try {
       final XFile? photo = await _picker.pickImage(source: ImageSource.camera);
       if (photo == null) return;
+
       final inputImage = InputImage.fromFilePath(photo.path);
       final textRecognizer = TextRecognizer(
         script: TextRecognitionScript.latin,
       );
       final recognizedText = await textRecognizer.processImage(inputImage);
+
       String result = recognizedText.text;
+
       if (numbersOnly) {
         result = result.replaceAll(RegExp(r'[^0-9]'), '');
       } else {
         result = result.replaceAll(RegExp(r'[^A-Z0-9]'), '').toUpperCase();
       }
-      setState(() => controller.text = result);
+
+      setState(() {
+        controller.text = result;
+      });
       textRecognizer.close();
     } catch (e) {
       ScaffoldMessenger.of(context).showSnackBar(
@@ -374,18 +461,23 @@ class _MainWizardPageState extends State<MainWizardPage> {
             Expanded(
               child: PageView(
                 controller: _pageController,
-                onPageChanged: (idx) => setState(() => _currentPage = idx),
+                onPageChanged: (idx) {
+                  setState(() {
+                    _currentPage = idx;
+                  });
+                },
                 physics: const NeverScrollableScrollPhysics(),
                 children: [
-                  _buildInfoStep(isDark),
-                  _buildPhotoStep(isDark),
-                  _buildCheckStep(isDark),
+                  _buildInfoStep(isDark), // Krok 1: Základní údaje + VIN
+                  _buildPhotoStep(isDark), // Krok 2: Strukturované fotografie
+                  _buildCheckStep(isDark), // Krok 3: Stav vozidla
                 ],
               ),
             ),
             _buildBottomPanel(isDark),
           ],
         ),
+
         if (_isUploading)
           Container(
             color: Colors.black54,
@@ -413,6 +505,7 @@ class _MainWizardPageState extends State<MainWizardPage> {
     );
   }
 
+  // --- KROK 1: ZÁKLADNÍ ÚDAJE (Číslo zakázky, SPZ, VIN) ---
   Widget _buildInfoStep(bool isDark) => SingleChildScrollView(
     padding: const EdgeInsets.all(30),
     child: Column(
@@ -439,77 +532,113 @@ class _MainWizardPageState extends State<MainWizardPage> {
           caps: true,
         ),
         const SizedBox(height: 20),
-        _buildInput('VIN kód', Icons.abc, _vinController, isDark, caps: true),
+        // NOVÉ: Pole pro VIN kód
+        _buildInput(
+          'VIN kód',
+          Icons.abc, // Ikonka otisku prstu (unikátní identifikátor)
+          _vinController,
+          isDark,
+          caps: true, // VIN obsahuje velká písmena
+        ),
       ],
     ),
   );
 
+  // --- KROK 2: STRUKTUROVANÉ FOTOGRAFIE (ListView) ---
   Widget _buildPhotoStep(bool isDark) => Padding(
     padding: const EdgeInsets.all(30),
     child: Column(
       crossAxisAlignment: CrossAxisAlignment.start,
       children: [
         const Text(
-          'Fotky vozu',
+          'Fotodokumentace',
           style: TextStyle(fontSize: 32, fontWeight: FontWeight.bold),
         ),
         const SizedBox(height: 20),
+        const Text(
+          'Vyfoťte prosím následující části vozu:',
+          style: TextStyle(fontSize: 16, color: Colors.grey),
+        ),
+        const SizedBox(height: 20),
         Expanded(
-          child: GridView.builder(
-            gridDelegate: const SliverGridDelegateWithFixedCrossAxisCount(
-              crossAxisCount: 2,
-              crossAxisSpacing: 15,
-              mainAxisSpacing: 15,
-            ),
-            itemCount: _images.length + 1,
+          child: ListView.separated(
+            itemCount: photoCategories.length,
+            separatorBuilder: (context, index) => const SizedBox(height: 15),
             itemBuilder: (context, index) {
-              if (index == _images.length) {
-                return InkWell(
-                  onTap: _takePhoto,
-                  child: Container(
-                    decoration: BoxDecoration(
-                      color: isDark
-                          ? Colors.blue.withOpacity(0.1)
-                          : Colors.blue.withOpacity(0.05),
-                      borderRadius: BorderRadius.circular(20),
-                      border: Border.all(
-                        color: Colors.blue.withOpacity(0.3),
-                        width: 2,
-                      ),
-                    ),
-                    child: const Icon(
-                      Icons.add_a_photo_rounded,
-                      size: 40,
-                      color: Colors.blue,
-                    ),
+              final key = photoCategories.keys.elementAt(index);
+              final category = photoCategories[key];
+              final label = category['label'] as String;
+              final icon = category['icon'] as IconData;
+              final takenPhoto = _categoryImages[key];
+
+              return Card(
+                color: isDark ? const Color(0xFF1A1A1A) : Colors.white,
+                shape: RoundedRectangleBorder(
+                  borderRadius: BorderRadius.circular(20),
+                  side: BorderSide(
+                    color: takenPhoto != null
+                        ? Colors.green.withOpacity(0.5)
+                        : Colors.grey.withOpacity(0.2),
+                    width: takenPhoto != null ? 2 : 1,
                   ),
-                );
-              }
-              return Stack(
-                fit: StackFit.expand,
-                children: [
-                  ClipRRect(
-                    borderRadius: BorderRadius.circular(20),
-                    child: kIsWeb
-                        ? Image.network(_images[index].path, fit: BoxFit.cover)
-                        : Image.file(
-                            File(_images[index].path),
-                            fit: BoxFit.cover,
+                ),
+                child: Padding(
+                  padding: const EdgeInsets.all(15),
+                  child: Row(
+                    children: [
+                      Icon(icon, color: Colors.blue, size: 30),
+                      const SizedBox(width: 15),
+                      Expanded(
+                        child: Text(
+                          label,
+                          style: const TextStyle(
+                            fontSize: 16,
+                            fontWeight: FontWeight.bold,
                           ),
-                  ),
-                  Positioned(
-                    top: 8,
-                    right: 8,
-                    child: GestureDetector(
-                      onTap: () => setState(() => _images.removeAt(index)),
-                      child: const CircleAvatar(
-                        radius: 12,
-                        backgroundColor: Colors.white,
-                        child: Icon(Icons.close, size: 16, color: Colors.red),
+                        ),
                       ),
-                    ),
+                      const SizedBox(width: 15),
+                      if (takenPhoto != null)
+                        ClipRRect(
+                          borderRadius: BorderRadius.circular(10),
+                          child: kIsWeb
+                              ? Image.network(
+                                  takenPhoto.path,
+                                  width: 60,
+                                  height: 60,
+                                  fit: BoxFit.cover,
+                                )
+                              : Image.file(
+                                  File(takenPhoto.path),
+                                  width: 60,
+                                  height: 60,
+                                  fit: BoxFit.cover,
+                                ),
+                        ),
+                      const SizedBox(width: 10),
+                      IconButton(
+                        onPressed: () => _takePhoto(key),
+                        icon: Icon(
+                          takenPhoto != null
+                              ? Icons.autorenew_rounded
+                              : Icons.add_a_photo_rounded,
+                          color: takenPhoto != null
+                              ? Colors.orange
+                              : Colors.blue,
+                        ),
+                      ),
+                      if (takenPhoto != null)
+                        IconButton(
+                          onPressed: () =>
+                              setState(() => _categoryImages[key] = null),
+                          icon: const Icon(
+                            Icons.delete_rounded,
+                            color: Colors.red,
+                          ),
+                        ),
+                    ],
                   ),
-                ],
+                ),
               );
             },
           ),
@@ -518,7 +647,7 @@ class _MainWizardPageState extends State<MainWizardPage> {
     ),
   );
 
-  // --- KROK 3: STAV VOZIDLA (Nově s palivem a tachometrem) ---
+  // --- KROK 3: STAV VOZIDLA A POZNÁMKY ---
   Widget _buildCheckStep(bool isDark) => SingleChildScrollView(
     padding: const EdgeInsets.all(30),
     child: Column(
@@ -530,56 +659,12 @@ class _MainWizardPageState extends State<MainWizardPage> {
         ),
         const SizedBox(height: 30),
 
-        // 1. Tachometr a Palivo
-        _buildInput(
-          'Stav tachometru (km)',
-          Icons.speed,
-          _tachometrController,
-          isDark,
-          numbersOnly: true,
-        ),
-        const SizedBox(height: 25),
-
-        Column(
-          crossAxisAlignment: CrossAxisAlignment.start,
-          children: [
-            Text(
-              'Stav paliva v nádrži (${_stavNadrze.toInt()} %)',
-              style: const TextStyle(
-                fontWeight: FontWeight.bold,
-                color: Colors.grey,
-              ),
-            ),
-            const SizedBox(height: 5),
-            Row(
-              children: [
-                Icon(
-                  Icons.local_gas_station,
-                  color: _stavNadrze < 20 ? Colors.red : Colors.blue,
-                ),
-                Expanded(
-                  child: Slider(
-                    value: _stavNadrze,
-                    min: 0,
-                    max: 100,
-                    divisions: 4, // Zastaví se na 0, 25, 50, 75, 100
-                    label: '${_stavNadrze.toInt()} %',
-                    activeColor: Colors.blue,
-                    onChanged: (val) => setState(() => _stavNadrze = val),
-                  ),
-                ),
-              ],
-            ),
-          ],
-        ),
-        const SizedBox(height: 25),
-
-        // 2. Poškození
+        // 1. Poškození
         Column(
           crossAxisAlignment: CrossAxisAlignment.start,
           children: [
             const Text(
-              'Zjištěné poškození',
+              '1. Zjištěné poškození',
               style: TextStyle(fontWeight: FontWeight.bold, color: Colors.grey),
             ),
             const SizedBox(height: 8),
@@ -614,12 +699,12 @@ class _MainWizardPageState extends State<MainWizardPage> {
         ),
         const SizedBox(height: 25),
 
-        // 3. STK
+        // 2. STK
         Column(
           crossAxisAlignment: CrossAxisAlignment.start,
           children: [
             const Text(
-              'Platnost STK',
+              '2. Platnost STK',
               style: TextStyle(fontWeight: FontWeight.bold, color: Colors.grey),
             ),
             const SizedBox(height: 8),
@@ -650,12 +735,12 @@ class _MainWizardPageState extends State<MainWizardPage> {
         ),
         const SizedBox(height: 25),
 
-        // 4. Dezén Pneu
+        // 3. Dezén Pneu
         Column(
           crossAxisAlignment: CrossAxisAlignment.start,
           children: [
             const Text(
-              'Hloubka dezénu pneu (v mm)',
+              '3. Hloubka dezénu pneu (v mm)',
               style: TextStyle(fontWeight: FontWeight.bold, color: Colors.grey),
             ),
             const SizedBox(height: 8),
@@ -710,7 +795,7 @@ class _MainWizardPageState extends State<MainWizardPage> {
         ),
         const SizedBox(height: 30),
 
-        // 5. Poznámky
+        // Poznámky
         Column(
           crossAxisAlignment: CrossAxisAlignment.start,
           children: [
@@ -742,6 +827,7 @@ class _MainWizardPageState extends State<MainWizardPage> {
     ),
   );
 
+  // --- SPODNÍ PANEL (Ukazatel postupu a tlačítka) ---
   Widget _buildBottomPanel(bool isDark) => Container(
     padding: const EdgeInsets.fromLTRB(30, 20, 30, 30),
     decoration: BoxDecoration(
@@ -785,6 +871,7 @@ class _MainWizardPageState extends State<MainWizardPage> {
                   padding: const EdgeInsets.all(15),
                 ),
               if (_currentPage > 0) const SizedBox(width: 15),
+
               Expanded(
                 child: ElevatedButton(
                   onPressed: _moveNext,
@@ -809,6 +896,7 @@ class _MainWizardPageState extends State<MainWizardPage> {
     ),
   );
 
+  // --- POMOCNÁ FUNKCE PRO TEXTOVÁ POLE ---
   Widget _buildInput(
     String label,
     IconData icon,
@@ -873,18 +961,11 @@ class _MainWizardPageState extends State<MainWizardPage> {
 }
 
 // ==============================================================================
-// STRÁNKA HISTORIE ZAKÁZEK (Nově jako StatefulWidget pro vyhledávání)
+// STRÁNKA HISTORIE ZAKÁZEK (StreamBuilder, Firestore)
 // ==============================================================================
 
-class HistoryPage extends StatefulWidget {
+class HistoryPage extends StatelessWidget {
   const HistoryPage({super.key});
-
-  @override
-  State<HistoryPage> createState() => _HistoryPageState();
-}
-
-class _HistoryPageState extends State<HistoryPage> {
-  String _searchQuery = ''; // Hodnota z vyhledávacího pole
 
   String _formatDate(dynamic timestamp) {
     if (timestamp == null) return "Zpracovává se...";
@@ -899,37 +980,11 @@ class _HistoryPageState extends State<HistoryPage> {
     return Column(
       crossAxisAlignment: CrossAxisAlignment.start,
       children: [
-        Padding(
-          padding: const EdgeInsets.fromLTRB(30, 30, 30, 10),
-          child: Column(
-            crossAxisAlignment: CrossAxisAlignment.start,
-            children: [
-              const Text(
-                'Historie',
-                style: TextStyle(fontSize: 32, fontWeight: FontWeight.bold),
-              ),
-              const SizedBox(height: 15),
-              // NOVÉ: Vyhledávací pole
-              TextField(
-                onChanged: (value) {
-                  setState(() {
-                    _searchQuery = value
-                        .toLowerCase(); // Uloží hledaný text malými písmeny
-                  });
-                },
-                decoration: InputDecoration(
-                  hintText: 'Hledat SPZ, VIN nebo číslo...',
-                  prefixIcon: const Icon(Icons.search, color: Colors.blue),
-                  filled: true,
-                  fillColor: isDark ? const Color(0xFF1E1E1E) : Colors.white,
-                  border: OutlineInputBorder(
-                    borderRadius: BorderRadius.circular(15),
-                    borderSide: BorderSide.none,
-                  ),
-                  contentPadding: const EdgeInsets.symmetric(vertical: 15),
-                ),
-              ),
-            ],
+        const Padding(
+          padding: EdgeInsets.fromLTRB(30, 30, 30, 10),
+          child: Text(
+            'Historie',
+            style: TextStyle(fontSize: 32, fontWeight: FontWeight.bold),
           ),
         ),
         Expanded(
@@ -941,38 +996,25 @@ class _HistoryPageState extends State<HistoryPage> {
             builder: (context, snapshot) {
               if (snapshot.hasError)
                 return Center(child: Text("Chyba databáze: ${snapshot.error}"));
+
               if (!snapshot.hasData)
                 return const Center(child: CircularProgressIndicator());
 
-              // FILTROVÁNÍ: Vezme všechny dokumenty a ponechá jen ty, co odpovídají hledání
-              final allDocs = snapshot.data!.docs;
-              final filteredDocs = allDocs.where((doc) {
-                final data = doc.data() as Map<String, dynamic>;
-                final cislo =
-                    data['cislo_zakazky']?.toString().toLowerCase() ?? '';
-                final spz = data['spz']?.toString().toLowerCase() ?? '';
-                final vin = data['vin']?.toString().toLowerCase() ?? '';
+              final docs = snapshot.data!.docs;
 
-                return cislo.contains(_searchQuery) ||
-                    spz.contains(_searchQuery) ||
-                    vin.contains(_searchQuery);
-              }).toList();
-
-              if (filteredDocs.isEmpty) {
+              if (docs.isEmpty)
                 return Center(
                   child: Column(
                     mainAxisAlignment: MainAxisAlignment.center,
                     children: [
                       Icon(
-                        Icons.search_off_rounded,
+                        Icons.inbox_rounded,
                         size: 80,
                         color: Colors.grey.withOpacity(0.5),
                       ),
                       const SizedBox(height: 16),
                       Text(
-                        _searchQuery.isEmpty
-                            ? 'Zatím žádné zakázky'
-                            : 'Nic nenalezeno',
+                        'Zatím žádné zakázky',
                         style: TextStyle(
                           fontSize: 18,
                           color: isDark ? Colors.grey[400] : Colors.grey[600],
@@ -981,14 +1023,12 @@ class _HistoryPageState extends State<HistoryPage> {
                     ],
                   ),
                 );
-              }
 
               return ListView.builder(
                 padding: const EdgeInsets.all(20),
-                itemCount: filteredDocs.length,
+                itemCount: docs.length,
                 itemBuilder: (context, index) {
-                  final data =
-                      filteredDocs[index].data() as Map<String, dynamic>;
+                  final data = docs[index].data() as Map<String, dynamic>;
                   return Card(
                     color: isDark ? const Color(0xFF1E1E1E) : Colors.white,
                     shape: RoundedRectangleBorder(
@@ -1005,6 +1045,7 @@ class _HistoryPageState extends State<HistoryPage> {
                         'Zakázka ${data['cislo_zakazky']}',
                         style: const TextStyle(fontWeight: FontWeight.bold),
                       ),
+                      // Zobrazení SPZ a Data
                       subtitle: Text(
                         'SPZ: ${data['spz']}\n${_formatDate(data['cas_prijeti'])}',
                       ),
@@ -1021,13 +1062,16 @@ class _HistoryPageState extends State<HistoryPage> {
     );
   }
 
-  // --- DETAIL ZAKÁZKY ---
+  // --- DETAIL ZAKÁZKY (Zobrazí se zespodu jako BottomSheet) ---
   void _showDetail(
     BuildContext context,
     Map<String, dynamic> data,
     bool isDark,
   ) {
     final stav = data['stav_vozidla'] as Map<String, dynamic>? ?? {};
+    // NOVÉ: Načtení strukturovaných fotek (pokud existují)
+    final Map<String, dynamic> imageUrlsByCategory =
+        data['fotografie_urls'] as Map<String, dynamic>? ?? {};
 
     showModalBottomSheet(
       context: context,
@@ -1070,13 +1114,15 @@ class _HistoryPageState extends State<HistoryPage> {
                     color: Colors.redAccent,
                     size: 28,
                   ),
-                  onPressed: () => _exportToPdf(context, data, stav),
+                  onPressed: () =>
+                      _exportToPdf(context, data, stav, imageUrlsByCategory),
                   tooltip: 'Stáhnout PDF protokol',
                 ),
               ],
             ),
             const SizedBox(height: 10),
 
+            // Základní údaje - Nyní včetně VIN kódu
             Text(
               'SPZ: ${data['spz']}',
               style: const TextStyle(
@@ -1108,23 +1154,6 @@ class _HistoryPageState extends State<HistoryPage> {
               style: TextStyle(fontWeight: FontWeight.bold, fontSize: 16),
             ),
             const SizedBox(height: 15),
-
-            // NOVÉ: Tachometr a nádrž v detailu
-            _buildDetailRow(
-              'Tachometr:',
-              '${stav['tachometr']?.toString().isNotEmpty == true ? stav['tachometr'] : 'Neuvedeno'} km',
-              Icons.speed,
-              Colors.grey,
-            ),
-            _buildDetailRow(
-              'Palivo:',
-              stav['nadrz'] != null
-                  ? '${stav['nadrz'].toInt()} %'
-                  : 'Neuvedeno',
-              Icons.local_gas_station,
-              Colors.blueGrey,
-            ),
-            const SizedBox(height: 10),
 
             _buildDetailRow(
               'Poškození:',
@@ -1212,61 +1241,85 @@ class _HistoryPageState extends State<HistoryPage> {
             ),
             const SizedBox(height: 15),
 
-            if ((data['fotografie_urls'] as List).isEmpty)
+            if (imageUrlsByCategory.isEmpty)
               const Text('Žádné fotografie nebyly pořízeny.')
             else
               SizedBox(
-                height: 180,
-                child: ListView.builder(
+                height: 220,
+                child: ListView.separated(
                   scrollDirection: Axis.horizontal,
-                  itemCount: (data['fotografie_urls'] as List).length,
+                  itemCount: imageUrlsByCategory.length,
+                  separatorBuilder: (context, index) =>
+                      const SizedBox(width: 15),
                   itemBuilder: (context, i) {
-                    final imageUrl = data['fotografie_urls'][i];
+                    final entry = imageUrlsByCategory.entries.elementAt(i);
+                    final key = entry.key;
+                    final imageUrl = entry.value as String;
+                    final category = photoCategories[key];
+                    final label = category != null
+                        ? category['label'] as String
+                        : 'Neznámá část';
+
                     return GestureDetector(
                       onTap: () => html.window.open(imageUrl, "_blank"),
-                      child: Padding(
-                        padding: const EdgeInsets.only(right: 15),
-                        child: ClipRRect(
-                          borderRadius: BorderRadius.circular(15),
-                          child: Image.network(
-                            imageUrl,
-                            width: 250,
-                            fit: BoxFit.cover,
-                            errorBuilder: (context, error, stackTrace) =>
-                                Container(
-                                  width: 250,
-                                  color: Colors.grey[200],
-                                  child: const Column(
-                                    mainAxisAlignment: MainAxisAlignment.center,
-                                    children: [
-                                      Icon(
-                                        Icons.broken_image,
-                                        color: Colors.red,
-                                        size: 40,
-                                      ),
-                                      SizedBox(height: 8),
-                                      Text(
-                                        'Chyba (CORS)',
-                                        style: TextStyle(
-                                          fontSize: 12,
+                      child: Column(
+                        crossAxisAlignment: CrossAxisAlignment.start,
+                        children: [
+                          ClipRRect(
+                            borderRadius: BorderRadius.circular(15),
+                            child: Image.network(
+                              imageUrl,
+                              width: 250,
+                              height: 180,
+                              fit: BoxFit.cover,
+                              errorBuilder: (context, error, stackTrace) =>
+                                  Container(
+                                    width: 250,
+                                    height: 180,
+                                    color: Colors.grey[200],
+                                    child: const Column(
+                                      mainAxisAlignment:
+                                          MainAxisAlignment.center,
+                                      children: [
+                                        Icon(
+                                          Icons.broken_image,
                                           color: Colors.red,
+                                          size: 40,
                                         ),
-                                      ),
-                                    ],
+                                        SizedBox(height: 8),
+                                        Text(
+                                          'Chyba (CORS)',
+                                          style: TextStyle(
+                                            fontSize: 12,
+                                            color: Colors.red,
+                                          ),
+                                        ),
+                                      ],
+                                    ),
                                   ),
-                                ),
-                            loadingBuilder: (context, child, loadingProgress) {
-                              if (loadingProgress == null) return child;
-                              return Container(
-                                width: 250,
-                                color: Colors.grey[100],
-                                child: const Center(
-                                  child: CircularProgressIndicator(),
-                                ),
-                              );
-                            },
+                              loadingBuilder:
+                                  (context, child, loadingProgress) {
+                                    if (loadingProgress == null) return child;
+                                    return Container(
+                                      width: 250,
+                                      height: 180,
+                                      color: Colors.grey[100],
+                                      child: const Center(
+                                        child: CircularProgressIndicator(),
+                                      ),
+                                    );
+                                  },
+                            ),
                           ),
-                        ),
+                          const SizedBox(height: 8),
+                          Text(
+                            label,
+                            style: const TextStyle(
+                              fontSize: 12,
+                              color: Colors.blue,
+                            ),
+                          ),
+                        ],
                       ),
                     );
                   },
@@ -1299,11 +1352,12 @@ class _HistoryPageState extends State<HistoryPage> {
     );
   }
 
-  // --- PDF EXPORT ---
+  // --- LOGIKA GENEROVÁNÍ PDF PROTOKOLU (upravena o strukturované fotky) ---
   Future<void> _exportToPdf(
     BuildContext context,
     Map<String, dynamic> data,
     Map<String, dynamic> stav,
+    Map<String, dynamic> imageUrlsByCategory,
   ) async {
     ScaffoldMessenger.of(context).showSnackBar(
       const SnackBar(
@@ -1388,6 +1442,7 @@ class _HistoryPageState extends State<HistoryPage> {
                         ),
                       ],
                     ),
+                    // NOVÉ: VIN v PDF
                     if (data['vin'] != null &&
                         data['vin'].toString().isNotEmpty) ...[
                       pw.Divider(color: PdfColors.grey300),
@@ -1427,43 +1482,12 @@ class _HistoryPageState extends State<HistoryPage> {
               ),
               pw.SizedBox(height: 30),
 
+              // STAV VOZIDLA
               pw.Text(
                 'Stav vozidla',
                 style: pw.TextStyle(font: fontBold, fontSize: 18),
               ),
               pw.SizedBox(height: 15),
-
-              // NOVÉ: Tachometr a Nádrž v PDF
-              pw.Row(
-                mainAxisAlignment: pw.MainAxisAlignment.spaceBetween,
-                children: [
-                  pw.Text(
-                    'Stav tachometru:',
-                    style: pw.TextStyle(font: fontRegular),
-                  ),
-                  pw.Text(
-                    '${stav['tachometr']?.toString().isNotEmpty == true ? stav['tachometr'] : 'Neuvedeno'} km',
-                    style: pw.TextStyle(font: fontBold),
-                  ),
-                ],
-              ),
-              pw.SizedBox(height: 5),
-              pw.Row(
-                mainAxisAlignment: pw.MainAxisAlignment.spaceBetween,
-                children: [
-                  pw.Text(
-                    'Stav paliva v nádrži:',
-                    style: pw.TextStyle(font: fontRegular),
-                  ),
-                  pw.Text(
-                    stav['nadrz'] != null
-                        ? '${stav['nadrz'].toInt()} %'
-                        : 'Neuvedeno',
-                    style: pw.TextStyle(font: fontBold),
-                  ),
-                ],
-              ),
-              pw.SizedBox(height: 5),
 
               pw.Row(
                 mainAxisAlignment: pw.MainAxisAlignment.spaceBetween,
@@ -1478,7 +1502,7 @@ class _HistoryPageState extends State<HistoryPage> {
                   ),
                 ],
               ),
-              pw.SizedBox(height: 5),
+              pw.SizedBox(height: 10),
               pw.Row(
                 mainAxisAlignment: pw.MainAxisAlignment.spaceBetween,
                 children: [
@@ -1577,6 +1601,50 @@ class _HistoryPageState extends State<HistoryPage> {
                   ],
                 ),
               ),
+
+              pw.SizedBox(height: 30),
+              // NOVÉ: Fotodokumentace v PDF
+              pw.Text(
+                'Fotodokumentace',
+                style: pw.TextStyle(font: fontBold, fontSize: 18),
+              ),
+              pw.SizedBox(height: 15),
+
+              if (imageUrlsByCategory.isEmpty)
+                pw.Text(
+                  'Žádné fotografie nebyly pořízeny.',
+                  style: pw.TextStyle(font: fontRegular, fontSize: 12),
+                )
+              else
+                ...imageUrlsByCategory.entries.map((entry) {
+                  final key = entry.key;
+                  final category = photoCategories[key];
+                  final label = category != null
+                      ? category['label'] as String
+                      : 'Neznámá část';
+
+                  return pw.Padding(
+                    padding: const pw.EdgeInsets.only(bottom: 5),
+                    child: pw.Row(
+                      children: [
+                        // Vlastní modrý puntík místo pw.Bullet
+                        pw.Container(
+                          width: 4,
+                          height: 4,
+                          decoration: const pw.BoxDecoration(
+                            shape: pw.BoxShape.circle,
+                            color: PdfColors.blue,
+                          ),
+                        ),
+                        pw.SizedBox(width: 8),
+                        pw.Text(
+                          label,
+                          style: pw.TextStyle(font: fontRegular, fontSize: 12),
+                        ),
+                      ],
+                    ),
+                  );
+                }), // Tady jsme smazali to .toList()
 
               pw.SizedBox(height: 20),
               pw.Divider(),
