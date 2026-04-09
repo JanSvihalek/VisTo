@@ -5,10 +5,12 @@ import 'package:google_mlkit_text_recognition/google_mlkit_text_recognition.dart
 import 'dart:io'; // Pro práci se soubory na mobilu (File)
 import 'package:intl/intl.dart'; // Pro formátování data
 import 'dart:html' as html; // Pro stahování/otevírání fotek na webu
+import 'dart:ui' as ui; // Pro práci s obrázky podpisu
 
-// --- KNIHOVNY PRO ARES ---
+// --- KNIHOVNY PRO ARES A PODPIS ---
 import 'package:http/http.dart' as http;
 import 'dart:convert';
+import 'package:signature/signature.dart'; // Podpisový arch
 
 // --- KNIHOVNY PRO PDF EXPORT ---
 import 'package:pdf/pdf.dart';
@@ -37,6 +39,43 @@ const Map<String, dynamic> photoCategories = {
   },
   'stk': {'label': 'Nálepka STK', 'icon': Icons.check_circle_outline_rounded},
 };
+
+// --- STAVY ZAKÁZKY ---
+const List<String> stavyZakazky = [
+  'Přijato',
+  'V opravě',
+  'Čeká na díly',
+  'K vyzvednutí',
+  'Dokončeno'
+];
+
+Color getStatusColor(String stav) {
+  switch (stav) {
+    case 'Přijato': return Colors.blue;
+    case 'V opravě': return Colors.orange;
+    case 'Čeká na díly': return Colors.redAccent;
+    case 'K vyzvednutí': return Colors.purple;
+    case 'Dokončeno': return Colors.green;
+    default: return Colors.grey;
+  }
+}
+
+// --- TŘÍDA PRO DÍLY ---
+class DilInput {
+  final cislo = TextEditingController();
+  final nazev = TextEditingController();
+  final pocet = TextEditingController(text: '1');
+  final cenaBezDph = TextEditingController();
+  final cenaSDph = TextEditingController();
+
+  void dispose() {
+    cislo.dispose();
+    nazev.dispose();
+    pocet.dispose();
+    cenaBezDph.dispose();
+    cenaSDph.dispose();
+  }
+}
 
 // --- GLOBÁLNÍ STAV ---
 final ValueNotifier<ThemeMode> themeNotifier = ValueNotifier(ThemeMode.light);
@@ -384,7 +423,7 @@ class MainWizardPage extends StatefulWidget {
 class _MainWizardPageState extends State<MainWizardPage> {
   final PageController _pageController = PageController();
   int _currentPage = 0;
-  final int _totalPages = 4;
+  final int _totalPages = 5; 
   bool _isUploading = false;
   bool _isLoadingAres = false; 
 
@@ -402,13 +441,16 @@ class _MainWizardPageState extends State<MainWizardPage> {
   final _zakazkaController = TextEditingController();
   final _spzController = TextEditingController();
   final _vinController = TextEditingController();
-  final _motorizaceController = TextEditingController(); // NOVÉ
+  final _motorizaceController = TextEditingController(); 
   final _poznamkyController = TextEditingController();
+  final _znackaController = TextEditingController(); 
+  final _modelController = TextEditingController(); 
+  final _rokVyrobyController = TextEditingController(); 
 
-  String _vybranePalivo = 'Benzín'; // NOVÉ
+  String _vybranePalivo = 'Benzín'; 
   final List<String> _moznostiPaliva = ['Benzín', 'Nafta', 'Elektro', 'Hybrid', 'LPG/CNG', 'Jiné']; 
   
-  String _vybranaPrevodovka = 'Manuální'; // NOVÉ
+  String _vybranaPrevodovka = 'Manuální'; 
   final List<String> _moznostiPrevodovky = ['Manuální', 'Automatická', 'Jiné']; 
 
   final Map<String, List<XFile>> _categoryImages = {};
@@ -434,7 +476,18 @@ class _MainWizardPageState extends State<MainWizardPage> {
   final _pneuLZController = TextEditingController();
   final _pneuPZController = TextEditingController();
 
-  // --- Funkce pro načtení dat z ARES ---
+  final SignatureController _signatureController = SignatureController(
+    penStrokeWidth: 3,
+    penColor: Colors.black,
+    exportBackgroundColor: Colors.white,
+  );
+
+  @override
+  void dispose() {
+    _signatureController.dispose();
+    super.dispose();
+  }
+
   Future<void> _fetchAresData() async {
     final ico = _icoController.text.trim();
     if (ico.isEmpty || ico.length != 8) {
@@ -521,13 +574,23 @@ class _MainWizardPageState extends State<MainWizardPage> {
       }
     }
 
-    if (_currentPage < _totalPages - 1) {
+    if (_currentPage == _totalPages - 1) {
+      if (_signatureController.isEmpty) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(
+            content: Text('Zákazník musí připojit podpis před odesláním.'),
+            backgroundColor: Colors.red,
+            duration: Duration(seconds: 3),
+          ),
+        );
+        return;
+      }
+      _startDirectUpload();
+    } else {
       _pageController.nextPage(
         duration: const Duration(milliseconds: 500),
         curve: Curves.easeInOutCubic,
       );
-    } else {
-      _startDirectUpload();
     }
   }
 
@@ -593,6 +656,16 @@ class _MainWizardPageState extends State<MainWizardPage> {
       }
     }
 
+    String? podpisUrl;
+    if (_signatureController.isNotEmpty) {
+      final Uint8List? signatureBytes = await _signatureController.toPngBytes();
+      if (signatureBytes != null) {
+        Reference ref = FirebaseStorage.instance.ref().child('servisy/${user.uid}/zakazky/$zakazkaId/podpis_${DateTime.now().millisecondsSinceEpoch}.png');
+        await ref.putData(signatureBytes);
+        podpisUrl = await ref.getDownloadURL();
+      }
+    }
+
     String zakaznikId = _vybranyZakaznikId ?? 'ZAK_${DateTime.now().millisecondsSinceEpoch}';
     if (_jmenoController.text.trim().isNotEmpty) {
       await FirebaseFirestore.instance.collection('zakaznici').doc('${user.uid}_$zakaznikId').set({
@@ -614,6 +687,9 @@ class _MainWizardPageState extends State<MainWizardPage> {
         'zakaznik_id': zakaznikId,
         'spz': spz,
         'vin': _vinController.text.trim().toUpperCase(),
+        'znacka': _znackaController.text.trim(),
+        'model': _modelController.text.trim(),
+        'rok_vyroby': _rokVyrobyController.text.trim(),
         'motorizace': _motorizaceController.text.trim(),
         'palivo': _vybranePalivo,
         'prevodovka': _vybranaPrevodovka,
@@ -629,9 +705,13 @@ class _MainWizardPageState extends State<MainWizardPage> {
       'cislo_zakazky': zakazkaId,
       'spz': spz,
       'vin': _vinController.text.trim().toUpperCase(),
+      'znacka': _znackaController.text.trim(),
+      'model': _modelController.text.trim(),
+      'rok_vyroby': _rokVyrobyController.text.trim(),
       'motorizace': _motorizaceController.text.trim(),
       'palivo_typ': _vybranePalivo,
       'prevodovka': _vybranaPrevodovka,
+      'stav_zakazky': 'Přijato',
       'zakaznik': {
         'id_zakaznika': zakaznikId,
         'jmeno': _jmenoController.text.trim(),
@@ -654,6 +734,7 @@ class _MainWizardPageState extends State<MainWizardPage> {
       },
       'poznamky': _poznamkyController.text.trim(),
       'fotografie_urls': imageUrlsByCategory,
+      'podpis_url': podpisUrl,
       'provedene_prace': [],
       'cas_prijeti': FieldValue.serverTimestamp(),
     });
@@ -671,6 +752,9 @@ class _MainWizardPageState extends State<MainWizardPage> {
     _zakazkaController.clear();
     _spzController.clear();
     _vinController.clear();
+    _znackaController.clear();
+    _modelController.clear();
+    _rokVyrobyController.clear();
     _motorizaceController.clear();
     _vybranePalivo = 'Benzín';
     _vybranaPrevodovka = 'Manuální';
@@ -686,6 +770,7 @@ class _MainWizardPageState extends State<MainWizardPage> {
 
     _tachometrController.clear();
     _stavNadrze = 50.0;
+    _signatureController.clear();
 
     setState(() => _currentPage = 0);
     _pageController.jumpToPage(0);
@@ -799,6 +884,7 @@ class _MainWizardPageState extends State<MainWizardPage> {
                   _buildVozidloStep(isDark),  
                   _buildPhotoStep(isDark),
                   _buildCheckStep(isDark),
+                  _buildPodpisStep(isDark), 
                 ],
               ),
             ),
@@ -941,6 +1027,37 @@ class _MainWizardPageState extends State<MainWizardPage> {
               _emailZController,
               isDark,
             ),
+
+            if (_nalezenaVozidla.isNotEmpty) ...[
+              const SizedBox(height: 30),
+              const Divider(),
+              const SizedBox(height: 15),
+              const Text('Uložená vozidla zákazníka:', style: TextStyle(fontWeight: FontWeight.bold, fontSize: 16)),
+              const SizedBox(height: 10),
+              Wrap(
+                spacing: 10,
+                runSpacing: 10,
+                children: _nalezenaVozidla.map((v) => ActionChip(
+                  backgroundColor: Colors.white,
+                  side: const BorderSide(color: Colors.blue),
+                  label: Text('${v['spz']} ${v['znacka'] != null && v['znacka'].toString().isNotEmpty ? '(${v['znacka']} ${v['model'] ?? ''})' : ''}', style: const TextStyle(fontWeight: FontWeight.bold)),
+                  avatar: const Icon(Icons.directions_car, color: Colors.blue, size: 16),
+                  onPressed: () {
+                    setState(() {
+                      _spzController.text = v['spz'] ?? '';
+                      _vinController.text = v['vin'] ?? '';
+                      _znackaController.text = v['znacka'] ?? '';
+                      _modelController.text = v['model'] ?? '';
+                      _rokVyrobyController.text = v['rok_vyroby'] ?? '';
+                      _motorizaceController.text = v['motorizace'] ?? '';
+                      if (v['palivo'] != null && _moznostiPaliva.contains(v['palivo'])) _vybranePalivo = v['palivo'];
+                      if (v['prevodovka'] != null && _moznostiPrevodovky.contains(v['prevodovka'])) _vybranaPrevodovka = v['prevodovka'];
+                    });
+                    ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('Údaje o vozidle byly doplněny.'), backgroundColor: Colors.green));
+                  }
+                )).toList(),
+              )
+            ]
           ],
         ),
       );
@@ -954,49 +1071,7 @@ class _MainWizardPageState extends State<MainWizardPage> {
               'Údaje o vozidle',
               style: TextStyle(fontSize: 32, fontWeight: FontWeight.bold),
             ),
-            const SizedBox(height: 20),
-
-            // --- NOVÉ: VÝBĚR ULOŽENÝCH VOZIDEL V KROKU 2 ---
-            if (_nalezenaVozidla.isNotEmpty) ...[
-              Container(
-                width: double.infinity,
-                padding: const EdgeInsets.all(15),
-                decoration: BoxDecoration(
-                  color: Colors.blue.withOpacity(0.05),
-                  borderRadius: BorderRadius.circular(15),
-                  border: Border.all(color: Colors.blue.withOpacity(0.2)),
-                ),
-                child: Column(
-                  crossAxisAlignment: CrossAxisAlignment.start,
-                  children: [
-                    const Text('Uložená vozidla zákazníka:', style: TextStyle(fontWeight: FontWeight.bold, color: Colors.blue)),
-                    const SizedBox(height: 10),
-                    Wrap(
-                      spacing: 10,
-                      runSpacing: 10,
-                      children: _nalezenaVozidla.map((v) => ActionChip(
-                        backgroundColor: Colors.white,
-                        side: const BorderSide(color: Colors.blue),
-                        label: Text('${v['spz']} ${v['motorizace'] != null && v['motorizace'].toString().isNotEmpty ? '(${v['motorizace']})' : ''}', style: const TextStyle(fontWeight: FontWeight.bold)),
-                        avatar: const Icon(Icons.directions_car, color: Colors.blue, size: 16),
-                        onPressed: () {
-                          setState(() {
-                            _spzController.text = v['spz'] ?? '';
-                            _vinController.text = v['vin'] ?? '';
-                            _motorizaceController.text = v['motorizace'] ?? '';
-                            if (v['palivo'] != null && _moznostiPaliva.contains(v['palivo'])) _vybranePalivo = v['palivo'];
-                            if (v['prevodovka'] != null && _moznostiPrevodovky.contains(v['prevodovka'])) _vybranaPrevodovka = v['prevodovka'];
-                          });
-                          ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('Údaje o vozidle byly doplněny.'), backgroundColor: Colors.green));
-                        }
-                      )).toList(),
-                    ),
-                  ],
-                ),
-              ),
-              const SizedBox(height: 30),
-            ],
-
+            const SizedBox(height: 40),
             _buildInput(
               'Číslo zakázky *',
               Icons.onetwothree,
@@ -1015,8 +1090,12 @@ class _MainWizardPageState extends State<MainWizardPage> {
             const SizedBox(height: 20),
             _buildInput('VIN kód', Icons.abc, _vinController, isDark, caps: true),
             const SizedBox(height: 20),
-
-            // --- NOVÉ: DETAILY VOZIDLA ---
+            _buildInput('Značka (např. Škoda)', Icons.directions_car, _znackaController, isDark),
+            const SizedBox(height: 20),
+            _buildInput('Model (např. Octavia)', Icons.directions_car_filled, _modelController, isDark),
+            const SizedBox(height: 20),
+            _buildInput('Rok výroby', Icons.calendar_today, _rokVyrobyController, isDark, numbersOnly: true),
+            const SizedBox(height: 20),
             _buildInput('Motorizace (např. 2.0 TDI)', Icons.settings, _motorizaceController, isDark),
             const SizedBox(height: 20),
             _buildDropdown('Typ paliva', Icons.local_gas_station, _vybranePalivo, _moznostiPaliva, (v) => setState(() => _vybranePalivo = v!), isDark),
@@ -1489,6 +1568,50 @@ class _MainWizardPageState extends State<MainWizardPage> {
         ),
       );
 
+  Widget _buildPodpisStep(bool isDark) => SingleChildScrollView(
+        padding: const EdgeInsets.all(30),
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            const Text(
+              'Shrnutí a podpis',
+              style: TextStyle(fontSize: 32, fontWeight: FontWeight.bold),
+            ),
+            const SizedBox(height: 20),
+            const Text(
+              'Zákazník svým podpisem stvrzuje správnost výše uvedených údajů a souhlasí se stavem vozidla při převzetí do servisu.',
+              style: TextStyle(color: Colors.grey, fontSize: 16),
+            ),
+            const SizedBox(height: 30),
+            
+            Container(
+              decoration: BoxDecoration(
+                border: Border.all(color: Colors.blue, width: 2),
+                borderRadius: BorderRadius.circular(15),
+                color: Colors.white,
+              ),
+              child: ClipRRect(
+                borderRadius: BorderRadius.circular(13),
+                child: Signature(
+                  controller: _signatureController,
+                  height: 250,
+                  backgroundColor: Colors.white,
+                ),
+              ),
+            ),
+            const SizedBox(height: 10),
+            Align(
+              alignment: Alignment.centerRight,
+              child: TextButton.icon(
+                onPressed: () => _signatureController.clear(),
+                icon: const Icon(Icons.clear, color: Colors.red),
+                label: const Text('Smazat podpis', style: TextStyle(color: Colors.red)),
+              ),
+            ),
+          ],
+        ),
+      );
+
   Widget _buildBottomPanel(bool isDark) => Container(
         padding: const EdgeInsets.fromLTRB(30, 20, 30, 30),
         decoration: BoxDecoration(
@@ -1545,7 +1668,7 @@ class _MainWizardPageState extends State<MainWizardPage> {
                       ),
                       child: Text(
                         _currentPage == _totalPages - 1
-                            ? 'DOKONČIT'
+                            ? 'DOKONČIT A ODESLAT'
                             : 'DALŠÍ KROK',
                         style: const TextStyle(fontWeight: FontWeight.bold),
                       ),
@@ -1835,7 +1958,7 @@ class _ServiceProgressPageState extends State<ServiceProgressPage> {
               ),
               const SizedBox(height: 10),
               const Text(
-                'Vyberte zakázku a zaznamenejte provedenou práci nebo přidejte fotodokumentaci.',
+                'Aktivní zakázky v řešení.',
                 style: TextStyle(color: Colors.grey),
               ),
               const SizedBox(height: 15),
@@ -1890,6 +2013,9 @@ class _ServiceProgressPageState extends State<ServiceProgressPage> {
 
               final docs = snapshot.data!.docs.where((doc) {
                 final data = doc.data() as Map<String, dynamic>;
+                
+                if (data['stav_zakazky'] == 'Dokončeno') return false;
+
                 final cislo = data['cislo_zakazky']?.toString().toLowerCase() ?? '';
                 final spz = data['spz']?.toString().toLowerCase() ?? '';
                 final vin = data['vin']?.toString().toLowerCase() ?? '';
@@ -1904,14 +2030,36 @@ class _ServiceProgressPageState extends State<ServiceProgressPage> {
                 itemBuilder: (context, index) {
                   final data = docs[index].data() as Map<String, dynamic>;
                   final docId = docs[index].id;
+                  final stav = data['stav_zakazky'] ?? 'Přijato';
+                  
                   return Card(
                     color: isDark ? const Color(0xFF1E1E1E) : Colors.white,
                     shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(15), side: BorderSide(color: Colors.blue.withOpacity(0.3))),
                     child: ListTile(
-                      contentPadding: const EdgeInsets.all(10),
-                      leading: const CircleAvatar(backgroundColor: Colors.blue, foregroundColor: Colors.white, child: Icon(Icons.build)),
-                      title: Text('Zakázka ${data['cislo_zakazky']}', style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 18)),
-                      subtitle: Text('SPZ: ${data['spz']}${data['vin'] != null && data['vin'].toString().isNotEmpty ? ' • VIN: ${data['vin']}' : ''}\nČas příjmu: ${_formatDate(data['cas_prijeti'])}'),
+                      contentPadding: const EdgeInsets.all(15),
+                      title: Row(
+                        mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                        children: [
+                          Text('${data['spz']}', style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 20)),
+                          Container(
+                            padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 4),
+                            decoration: BoxDecoration(
+                              color: getStatusColor(stav).withOpacity(0.1),
+                              borderRadius: BorderRadius.circular(10),
+                              border: Border.all(color: getStatusColor(stav)),
+                            ),
+                            child: Text(stav, style: TextStyle(color: getStatusColor(stav), fontWeight: FontWeight.bold, fontSize: 12)),
+                          )
+                        ],
+                      ),
+                      subtitle: Padding(
+                        padding: const EdgeInsets.only(top: 8.0),
+                        child: Text(
+                          'Zakázka: ${data['cislo_zakazky']}' + 
+                          (data['znacka'] != null && data['znacka'].toString().isNotEmpty ? '\n${data['znacka']} ${data['model'] ?? ''}' : '') +
+                          '\nČas příjmu: ${_formatDate(data['cas_prijeti'])}',
+                        ),
+                      ),
                       isThreeLine: true,
                       trailing: const Icon(Icons.arrow_forward_ios, size: 16),
                       onTap: () => Navigator.push(context, MaterialPageRoute(builder: (context) => ActiveJobScreen(documentId: docId, zakazkaId: data['cislo_zakazky'].toString(), spz: data['spz'].toString()))),
@@ -1928,7 +2076,7 @@ class _ServiceProgressPageState extends State<ServiceProgressPage> {
 }
 
 // ==============================================================================
-// OBRAZOVKA PRO PŘIDÁVÁNÍ ÚKONŮ DO KONKRÉTNÍ ZAKÁZKY
+// OBRAZOVKA PRO PŘIDÁVÁNÍ ÚKONŮ A ZMĚNU STAVU
 // ==============================================================================
 
 class ActiveJobScreen extends StatelessWidget {
@@ -1944,7 +2092,15 @@ class ActiveJobScreen extends StatelessWidget {
     return DateFormat('dd.MM.yyyy HH:mm').format(dt);
   }
 
-  // --- SMAZÁNÍ ÚKONU ---
+  void _openAddWorkDialog(BuildContext context) {
+    showModalBottomSheet(
+      context: context,
+      isScrollControlled: true,
+      backgroundColor: Colors.transparent,
+      builder: (context) => _AddWorkSheet(documentId: documentId, zakazkaId: zakazkaId),
+    );
+  }
+
   Future<void> _deleteWork(BuildContext context, Map<String, dynamic> workItem) async {
     bool? confirm = await showDialog<bool>(
       context: context,
@@ -1963,6 +2119,280 @@ class ActiveJobScreen extends StatelessWidget {
         'provedene_prace': FieldValue.arrayRemove([workItem])
       });
     }
+  }
+
+  Future<void> _zmenitStav(BuildContext context, String novyStav) async {
+    await FirebaseFirestore.instance.collection('zakazky').doc(documentId).update({
+      'stav_zakazky': novyStav
+    });
+    if (novyStav == 'Dokončeno') {
+      Navigator.pop(context); 
+      ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('Zakázka přesunuta do Historie.'), backgroundColor: Colors.green));
+    }
+  }
+
+  pw.Widget _buildCompactRow(String label1, String value1, String label2, String value2, pw.Font fontReg, pw.Font fontBld) {
+    return pw.Padding(
+      padding: const pw.EdgeInsets.only(bottom: 4),
+      child: pw.Row(
+        children: [
+          pw.Expanded(
+            child: pw.Row(
+              crossAxisAlignment: pw.CrossAxisAlignment.start,
+              children: [
+                pw.Text(label1, style: pw.TextStyle(font: fontReg, fontSize: 10, color: PdfColors.grey700)),
+                pw.SizedBox(width: 4),
+                pw.Expanded(child: pw.Text(value1, style: pw.TextStyle(font: fontBld, fontSize: 11))),
+              ]
+            ),
+          ),
+          if (label2.isNotEmpty)
+            pw.Expanded(
+              child: pw.Row(
+                crossAxisAlignment: pw.CrossAxisAlignment.start,
+                children: [
+                  pw.Text(label2, style: pw.TextStyle(font: fontReg, fontSize: 10, color: PdfColors.grey700)),
+                  pw.SizedBox(width: 4),
+                  pw.Expanded(child: pw.Text(value2, style: pw.TextStyle(font: fontBld, fontSize: 11))),
+                ]
+              ),
+            )
+          else
+            pw.Expanded(child: pw.SizedBox()),
+        ]
+      )
+    );
+  }
+
+  Future<void> _exportToPdf(
+    BuildContext context,
+    Map<String, dynamic> data,
+    Map<String, dynamic> stav,
+    Map<String, dynamic> zakaznik,
+    Map<String, dynamic> imageUrlsByCategory,
+  ) async {
+    ScaffoldMessenger.of(context).showSnackBar(
+      const SnackBar(
+        content: Text('Generuji PDF protokol (po vygenerování vyberte E-mail k odeslání)...'),
+        duration: Duration(seconds: 2),
+      ),
+    );
+
+    final provedenePrace = data['provedene_prace'] as List<dynamic>? ?? [];
+    final podpisUrl = data['podpis_url'] as String?; 
+    pw.MemoryImage? podpisImage;
+
+    if (podpisUrl != null) {
+      try {
+        final response = await http.get(Uri.parse(podpisUrl));
+        if (response.statusCode == 200) {
+          podpisImage = pw.MemoryImage(response.bodyBytes);
+        }
+      } catch (e) {
+        debugPrint("Chyba při stahování podpisu do PDF: $e");
+      }
+    }
+
+    final pdf = pw.Document();
+    final fontRegular = await PdfGoogleFonts.robotoRegular();
+    final fontBold = await PdfGoogleFonts.robotoBold();
+
+    String poskozeniPdfText = 'Neuvedeno';
+    if (stav['poskozeni'] is List) {
+      poskozeniPdfText = (stav['poskozeni'] as List).join(', ');
+    } else if (stav['poskozeni'] != null) {
+      poskozeniPdfText = stav['poskozeni'].toString();
+    }
+
+    pdf.addPage(
+      pw.MultiPage(
+        pageFormat: PdfPageFormat.a4,
+        margin: const pw.EdgeInsets.all(40),
+        build: (pw.Context context) {
+          return [
+            pw.Header(
+              level: 0,
+              child: pw.Row(
+                mainAxisAlignment: pw.MainAxisAlignment.spaceBetween,
+                children: [
+                  pw.Text('VISTO', style: pw.TextStyle(font: fontBold, fontSize: 28, color: PdfColors.blue800)),
+                  pw.Text('Protokol o příjmu a opravě', style: pw.TextStyle(font: fontRegular, fontSize: 20, color: PdfColors.grey600)),
+                ],
+              ),
+            ),
+            pw.SizedBox(height: 15),
+
+            if (zakaznik.isNotEmpty && (zakaznik['jmeno']?.toString().isNotEmpty == true || zakaznik['ico']?.toString().isNotEmpty == true)) ...[
+              pw.Container(
+                padding: const pw.EdgeInsets.all(10),
+                decoration: pw.BoxDecoration(color: PdfColors.blue50, borderRadius: pw.BorderRadius.circular(8)),
+                child: pw.Column(
+                  crossAxisAlignment: pw.CrossAxisAlignment.start,
+                  children: [
+                    pw.Text('Údaje o zákazníkovi', style: pw.TextStyle(font: fontBold, fontSize: 12, color: PdfColors.blue800)),
+                    pw.SizedBox(height: 5),
+                    _buildCompactRow('Jméno / Firma:', zakaznik['jmeno']?.toString() ?? '-', 'IČO:', zakaznik['ico']?.toString() ?? '-', fontRegular, fontBold),
+                    _buildCompactRow('Adresa:', zakaznik['adresa']?.toString() ?? '-', 'Telefon:', zakaznik['telefon']?.toString() ?? '-', fontRegular, fontBold),
+                    _buildCompactRow('E-mail:', zakaznik['email']?.toString() ?? '-', '', '', fontRegular, fontBold),
+                  ]
+                )
+              ),
+              pw.SizedBox(height: 15),
+            ],
+
+            pw.Container(
+              padding: const pw.EdgeInsets.all(10),
+              decoration: pw.BoxDecoration(color: PdfColors.grey100, borderRadius: pw.BorderRadius.circular(8)),
+              child: pw.Column(
+                crossAxisAlignment: pw.CrossAxisAlignment.start,
+                children: [
+                  pw.Text('Údaje o vozidle', style: pw.TextStyle(font: fontBold, fontSize: 12, color: PdfColors.grey800)),
+                  pw.SizedBox(height: 5),
+                  _buildCompactRow('Zakázka č.:', data['cislo_zakazky'].toString(), 'Přijato:', _formatDate(data['cas_prijeti']), fontRegular, fontBold),
+                  _buildCompactRow('SPZ:', data['spz'].toString(), 'VIN:', data['vin']?.toString() ?? '-', fontRegular, fontBold),
+                  _buildCompactRow('Značka:', data['znacka']?.toString() ?? '-', 'Model:', data['model']?.toString() ?? '-', fontRegular, fontBold),
+                  _buildCompactRow('Rok výroby:', data['rok_vyroby']?.toString() ?? '-', 'Motorizace:', data['motorizace']?.toString() ?? '-', fontRegular, fontBold),
+                  _buildCompactRow('Typ paliva:', data['palivo_typ']?.toString() ?? '-', 'Převodovka:', data['prevodovka']?.toString() ?? '-', fontRegular, fontBold),
+                ]
+              )
+            ),
+            pw.SizedBox(height: 20),
+
+            pw.Text('Stav vozidla při příjmu', style: pw.TextStyle(font: fontBold, fontSize: 14)),
+            pw.SizedBox(height: 8),
+            _buildCompactRow('Tachometr:', '${stav['tachometr']?.toString().isNotEmpty == true ? stav['tachometr'] : '-'} km', 'Palivo v nádrži:', '${stav['nadrz']?.toInt() ?? '-'} %', fontRegular, fontBold),
+            _buildCompactRow('Platnost STK:', '${stav['stk_mesic'] ?? '-'} / ${stav['stk_rok'] ?? '-'}', 'Poškození:', poskozeniPdfText, fontRegular, fontBold),
+            pw.SizedBox(height: 15),
+
+            pw.Text('Hloubka dezénu pneu:', style: pw.TextStyle(font: fontBold, fontSize: 12)),
+            pw.SizedBox(height: 5),
+            pw.Container(
+              padding: const pw.EdgeInsets.all(8),
+              decoration: pw.BoxDecoration(border: pw.Border.all(color: PdfColors.grey300), borderRadius: pw.BorderRadius.circular(8)),
+              child: pw.Row(
+                mainAxisAlignment: pw.MainAxisAlignment.spaceAround,
+                children: [
+                  pw.Column(children: [pw.Text('Levá Přední', style: pw.TextStyle(font: fontRegular, color: PdfColors.grey600, fontSize: 9)), pw.Text('${stav['pneu_lp'] ?? '-'} mm', style: pw.TextStyle(font: fontBold, fontSize: 11))]),
+                  pw.Column(children: [pw.Text('Pravá Přední', style: pw.TextStyle(font: fontRegular, color: PdfColors.grey600, fontSize: 9)), pw.Text('${stav['pneu_pp'] ?? '-'} mm', style: pw.TextStyle(font: fontBold, fontSize: 11))]),
+                  pw.Column(children: [pw.Text('Levá Zadní', style: pw.TextStyle(font: fontRegular, color: PdfColors.grey600, fontSize: 9)), pw.Text('${stav['pneu_lz'] ?? '-'} mm', style: pw.TextStyle(font: fontBold, fontSize: 11))]),
+                  pw.Column(children: [pw.Text('Pravá Zadní', style: pw.TextStyle(font: fontRegular, color: PdfColors.grey600, fontSize: 9)), pw.Text('${stav['pneu_pz'] ?? '-'} mm', style: pw.TextStyle(font: fontBold, fontSize: 11))]),
+                ],
+              ),
+            ),
+            pw.SizedBox(height: 20),
+
+            pw.Text('Fotodokumentace příjmu', style: pw.TextStyle(font: fontBold, fontSize: 14)),
+            pw.SizedBox(height: 10),
+
+            if (imageUrlsByCategory.values.every((list) => (list as List).isEmpty))
+              pw.Text('Žádné fotografie nebyly pořízeny.', style: pw.TextStyle(font: fontRegular, fontSize: 11))
+            else
+              pw.Wrap(
+                spacing: 15,
+                runSpacing: 5,
+                children: imageUrlsByCategory.entries
+                  .where((e) => (e.value as List<dynamic>).isNotEmpty)
+                  .map((entry) {
+                    final key = entry.key;
+                    final urls = entry.value as List<dynamic>;
+                    final label = photoCategories[key]?['label'] ?? 'Ostatní / Starší fotky';
+                    return pw.Row(
+                      mainAxisSize: pw.MainAxisSize.min,
+                      children: [
+                        pw.Container(width: 4, height: 4, decoration: const pw.BoxDecoration(shape: pw.BoxShape.circle, color: PdfColors.blue)),
+                        pw.SizedBox(width: 6),
+                        pw.Text('$label (${urls.length}x)', style: pw.TextStyle(font: fontRegular, fontSize: 11)),
+                      ],
+                    );
+                  }).toList(),
+              ),
+              
+            if (data['poznamky'] != null && data['poznamky'].toString().isNotEmpty) ...[
+              pw.SizedBox(height: 15),
+              pw.Text('Poznámky k příjmu:', style: pw.TextStyle(font: fontBold, fontSize: 12)),
+              pw.SizedBox(height: 5),
+              pw.Text(data['poznamky'].toString(), style: pw.TextStyle(font: fontRegular, fontSize: 11, color: PdfColors.grey800)),
+            ],
+
+            pw.SizedBox(height: 20),
+
+            if (provedenePrace.isNotEmpty) ...[
+              pw.NewPage(),
+              pw.Text('Záznam o opravě / Provedené práce', style: pw.TextStyle(font: fontBold, fontSize: 18, color: PdfColors.blue800)),
+              pw.SizedBox(height: 15),
+              ...provedenePrace.map((prace) {
+                final pocetFotek = (prace['fotografie_urls'] as List?)?.length ?? 0;
+                final dily = prace['pouzite_dily'] as List<dynamic>? ?? [];
+                
+                return pw.Container(
+                  margin: const pw.EdgeInsets.only(bottom: 15),
+                  padding: const pw.EdgeInsets.all(10),
+                  decoration: pw.BoxDecoration(color: PdfColors.grey50, border: pw.Border.all(color: PdfColors.grey300), borderRadius: pw.BorderRadius.circular(8)),
+                  child: pw.Column(
+                    crossAxisAlignment: pw.CrossAxisAlignment.start,
+                    children: [
+                      pw.Row(
+                        mainAxisAlignment: pw.MainAxisAlignment.spaceBetween,
+                        children: [
+                          pw.Text('${prace['nazev']} (Cena: ${prace['cena_s_dph']} Kč s DPH)', style: pw.TextStyle(font: fontBold, fontSize: 14)),
+                          pw.Text(_formatDate(prace['cas']), style: pw.TextStyle(font: fontRegular, fontSize: 10, color: PdfColors.grey600)),
+                        ],
+                      ),
+                      if (prace['delka_prace'] != null && prace['delka_prace'].toString().isNotEmpty)
+                        pw.Text('Délka práce: ${prace['delka_prace']}', style: pw.TextStyle(font: fontRegular, fontSize: 11, color: PdfColors.grey700)),
+                      if (prace['popis'] != null && prace['popis'].toString().isNotEmpty) ...[
+                        pw.SizedBox(height: 5),
+                        pw.Text(prace['popis'].toString(), style: pw.TextStyle(font: fontRegular, fontSize: 11)),
+                      ],
+                      if (dily.isNotEmpty) ...[
+                        pw.SizedBox(height: 8),
+                        pw.Text('Použité díly:', style: pw.TextStyle(font: fontBold, fontSize: 11)),
+                        ...dily.map((dil) => pw.Padding(
+                          padding: const pw.EdgeInsets.only(top: 2, left: 10),
+                          child: pw.Text('• ${dil['nazev']} (${dil['cislo']}) - ${dil['pocet']} ks - ${dil['cena_s_dph']} Kč s DPH', style: pw.TextStyle(font: fontRegular, fontSize: 10))
+                        )).toList(),
+                      ],
+                      if (pocetFotek > 0) ...[
+                        pw.SizedBox(height: 5),
+                        pw.Text('Pořízená fotodokumentace: $pocetFotek fotek', style: pw.TextStyle(font: fontRegular, fontSize: 10, color: PdfColors.blue)),
+                      ]
+                    ],
+                  ),
+                );
+              }),
+            ],
+
+            pw.Spacer(),
+
+            if (podpisImage != null) ...[
+              pw.SizedBox(height: 30),
+              pw.Divider(color: PdfColors.grey300),
+              pw.SizedBox(height: 10),
+              pw.Row(
+                mainAxisAlignment: pw.MainAxisAlignment.spaceBetween,
+                crossAxisAlignment: pw.CrossAxisAlignment.end,
+                children: [
+                  pw.Column(
+                    crossAxisAlignment: pw.CrossAxisAlignment.start,
+                    children: [
+                      pw.Text('Podpis zákazníka:', style: pw.TextStyle(font: fontBold, fontSize: 12)),
+                      pw.SizedBox(height: 5),
+                      pw.Image(podpisImage, width: 150, height: 60),
+                      pw.Container(width: 150, height: 1, color: PdfColors.black),
+                    ]
+                  ),
+                  pw.Text('Vygenerováno aplikací Visto', style: pw.TextStyle(font: fontRegular, fontSize: 10, color: PdfColors.grey500)),
+                ]
+              )
+            ] else ...[
+               pw.Center(child: pw.Text('Vygenerováno aplikací Visto', style: pw.TextStyle(font: fontRegular, fontSize: 10, color: PdfColors.grey500))),
+            ]
+          ];
+        },
+      ),
+    );
+
+    await Printing.sharePdf(bytes: await pdf.save(), filename: 'Protokol_${data['cislo_zakazky']}.pdf');
   }
 
   @override
@@ -1986,10 +2416,60 @@ class ActiveJobScreen extends StatelessWidget {
           if (data == null) return const Center(child: Text("Dokument nenalezen."));
 
           final provedenePrace = data['provedene_prace'] as List<dynamic>? ?? [];
+          final aktualniStav = data['stav_zakazky'] ?? 'Přijato';
+          final stav = data['stav_vozidla'] as Map<String, dynamic>? ?? {};
+          final zakaznik = data['zakaznik'] as Map<String, dynamic>? ?? {}; 
+          final rawUrls = data['fotografie_urls'];
+          final Map<String, dynamic> imageUrlsByCategoryRaw = {};
+
+          if (rawUrls is Map) {
+            imageUrlsByCategoryRaw.addAll(Map<String, dynamic>.from(rawUrls));
+          } else if (rawUrls is List) {
+            imageUrlsByCategoryRaw['ostatni'] = rawUrls;
+          }
 
           return Column(
             crossAxisAlignment: CrossAxisAlignment.start,
             children: [
+              Container(
+                width: double.infinity,
+                color: isDark ? const Color(0xFF1A1A1A) : Colors.white,
+                padding: const EdgeInsets.symmetric(horizontal: 20, vertical: 15),
+                child: Row(
+                  children: [
+                    const Text('Stav zakázky: ', style: TextStyle(fontWeight: FontWeight.bold, fontSize: 16)),
+                    const SizedBox(width: 15),
+                    Expanded(
+                      child: Container(
+                        padding: const EdgeInsets.symmetric(horizontal: 10),
+                        decoration: BoxDecoration(
+                          color: getStatusColor(aktualniStav).withOpacity(0.1),
+                          borderRadius: BorderRadius.circular(10),
+                          border: Border.all(color: getStatusColor(aktualniStav)),
+                        ),
+                        child: DropdownButtonHideUnderline(
+                          child: DropdownButton<String>(
+                            value: aktualniStav,
+                            isExpanded: true,
+                            dropdownColor: isDark ? const Color(0xFF2C2C2C) : Colors.white,
+                            items: stavyZakazky.map((s) => DropdownMenuItem(value: s, child: Text(s, style: TextStyle(color: getStatusColor(s), fontWeight: FontWeight.bold)))).toList(),
+                            onChanged: (novyStav) {
+                              if (novyStav != null) _zmenitStav(context, novyStav);
+                            },
+                          ),
+                        ),
+                      ),
+                    ),
+                    IconButton(
+                      icon: const Icon(Icons.picture_as_pdf, color: Colors.redAccent),
+                      onPressed: () => _exportToPdf(context, data, stav, zakaznik, imageUrlsByCategoryRaw),
+                      tooltip: 'Stáhnout PDF',
+                    )
+                  ],
+                ),
+              ),
+              const Divider(height: 1),
+
               const Padding(padding: EdgeInsets.fromLTRB(20, 20, 20, 10), child: Text('Zaznamenané úkony', style: TextStyle(fontSize: 20, fontWeight: FontWeight.bold))),
               Expanded(
                 child: provedenePrace.isEmpty
@@ -2000,7 +2480,7 @@ class ActiveJobScreen extends StatelessWidget {
                       itemBuilder: (context, index) {
                         final prace = provedenePrace[provedenePrace.length - 1 - index];
                         final fotky = prace['fotografie_urls'] as List<dynamic>? ?? [];
-                        final dily = prace['pouzite_dily'];
+                        final dily = prace['pouzite_dily'] as List<dynamic>? ?? [];
                         
                         return Card(
                           margin: const EdgeInsets.only(bottom: 15),
@@ -2014,22 +2494,28 @@ class ActiveJobScreen extends StatelessWidget {
                                 Row(
                                   mainAxisAlignment: MainAxisAlignment.spaceBetween,
                                   children: [
-                                    Expanded(child: Text(prace['nazev'], style: const TextStyle(fontSize: 18, fontWeight: FontWeight.bold))),
+                                    Expanded(child: Text('${prace['nazev']} (${prace['cena_s_dph']} Kč s DPH)', style: const TextStyle(fontSize: 18, fontWeight: FontWeight.bold))),
                                     IconButton(onPressed: () => _deleteWork(context, prace), icon: const Icon(Icons.delete_outline, color: Colors.red, size: 20)),
                                   ],
                                 ),
                                 Text(_formatDate(prace['cas']), style: const TextStyle(fontSize: 12, color: Colors.grey)),
-                                if (prace['popis'] != null && prace['popis'].toString().isNotEmpty) Padding(padding: const EdgeInsets.only(top: 8), child: Text(prace['popis'])),
                                 
-                                if (dily != null) ...[
-                                  const SizedBox(height: 5),
-                                  if (dily is List && dily.isNotEmpty)
-                                    Text('Použité díly: ${dily.join(', ')}', style: const TextStyle(fontSize: 14))
-                                  else if (dily is String && dily.isNotEmpty)
-                                    Text('Použité díly: $dily', style: const TextStyle(fontSize: 14)),
+                                if (prace['popis'] != null && prace['popis'].toString().isNotEmpty) ...[
+                                  const SizedBox(height: 10),
+                                  Text(prace['popis'], style: const TextStyle(fontSize: 14)),
                                 ],
                                 
-                                if (prace['delka_prace'] != null && prace['delka_prace'].toString().isNotEmpty) Padding(padding: const EdgeInsets.only(top: 4), child: Text('Čas: ${prace['delka_prace']}', style: const TextStyle(fontWeight: FontWeight.w500, color: Colors.blue))),
+                                if (prace['delka_prace'] != null && prace['delka_prace'].toString().isNotEmpty) Padding(padding: const EdgeInsets.only(top: 4), child: Text('Čas práce: ${prace['delka_prace']}', style: const TextStyle(fontWeight: FontWeight.w500, color: Colors.blue))),
+                                
+                                if (dily.isNotEmpty) ...[
+                                  const SizedBox(height: 10),
+                                  const Text('Použité díly:', style: TextStyle(fontWeight: FontWeight.bold, fontSize: 13, color: Colors.grey)),
+                                  ...dily.map((dil) => Padding(
+                                    padding: const EdgeInsets.only(top: 4, left: 10),
+                                    child: Text('• ${dil['nazev']} (${dil['cislo']}) - ${dil['pocet']} ks - ${dil['cena_s_dph']} Kč s DPH', style: const TextStyle(fontSize: 13)),
+                                  )).toList()
+                                ],
+
                                 if (fotky.isNotEmpty) Padding(
                                   padding: const EdgeInsets.only(top: 15),
                                   child: SizedBox(height: 100, child: ListView.separated(scrollDirection: Axis.horizontal, itemCount: fotky.length, separatorBuilder: (c, i) => const SizedBox(width: 10), itemBuilder: (c, i) => GestureDetector(onTap: () => html.window.open(fotky[i], "_blank"), child: ClipRRect(borderRadius: BorderRadius.circular(8), child: Image.network(fotky[i], width: 140, fit: BoxFit.cover))))),
@@ -2045,7 +2531,7 @@ class ActiveJobScreen extends StatelessWidget {
                 width: double.infinity,
                 padding: const EdgeInsets.all(20),
                 decoration: BoxDecoration(color: isDark ? const Color(0xFF1A1A1A) : Colors.white, boxShadow: [BoxShadow(color: Colors.black.withOpacity(0.05), blurRadius: 10, offset: const Offset(0, -5))]),
-                child: SafeArea(child: ElevatedButton.icon(onPressed: () => showModalBottomSheet(context: context, isScrollControlled: true, backgroundColor: Colors.transparent, builder: (context) => _AddWorkSheet(documentId: documentId, zakazkaId: zakazkaId)), icon: const Icon(Icons.add), label: const Text('ZAZNAMENAT ÚKON', style: TextStyle(fontWeight: FontWeight.bold, fontSize: 16)), style: ElevatedButton.styleFrom(backgroundColor: Colors.blue, foregroundColor: Colors.white, padding: const EdgeInsets.symmetric(vertical: 20), shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(15))))),
+                child: SafeArea(child: ElevatedButton.icon(onPressed: () => _openAddWorkDialog(context), icon: const Icon(Icons.add), label: const Text('ZAZNAMENAT ÚKON', style: TextStyle(fontWeight: FontWeight.bold, fontSize: 16)), style: ElevatedButton.styleFrom(backgroundColor: Colors.blue, foregroundColor: Colors.white, padding: const EdgeInsets.symmetric(vertical: 20), shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(15))))),
               )
             ],
           );
@@ -2056,7 +2542,7 @@ class ActiveJobScreen extends StatelessWidget {
 }
 
 // ==============================================================================
-// SUB-WIDGET PRO VKLÁDÁNÍ NOVÉ PRÁCE (BOTTOM SHEET S DYNAMICKÝMI DÍLY)
+// SUB-WIDGET PRO VKLÁDÁNÍ NOVÉ PRÁCE S KALKULACÍ
 // ==============================================================================
 
 class _AddWorkSheet extends StatefulWidget {
@@ -2073,7 +2559,10 @@ class _AddWorkSheetState extends State<_AddWorkSheet> {
   final _nazevController = TextEditingController();
   final _popisController = TextEditingController();
   final _delkaController = TextEditingController();
-  final List<TextEditingController> _dilyControllers = [];
+  final _praceCenaBezDphController = TextEditingController();
+  final _praceCenaSDphController = TextEditingController();
+
+  final List<DilInput> _dilyInputs = [];
   
   final List<XFile> _workImages = [];
   final ImagePicker _picker = ImagePicker();
@@ -2084,8 +2573,10 @@ class _AddWorkSheetState extends State<_AddWorkSheet> {
     _nazevController.dispose();
     _popisController.dispose();
     _delkaController.dispose();
-    for (var controller in _dilyControllers) {
-      controller.dispose();
+    _praceCenaBezDphController.dispose();
+    _praceCenaSDphController.dispose();
+    for (var dil in _dilyInputs) {
+      dil.dispose();
     }
     super.dispose();
   }
@@ -2113,7 +2604,13 @@ class _AddWorkSheetState extends State<_AddWorkSheet> {
         uploadedUrls.add(await ref.getDownloadURL());
       }
       
-      List<String> pouziteDily = _dilyControllers.map((c) => c.text.trim()).where((text) => text.isNotEmpty).toList();
+      List<Map<String, dynamic>> pouziteDily = _dilyInputs.map((dil) => {
+        'cislo': dil.cislo.text.trim(),
+        'nazev': dil.nazev.text.trim(),
+        'pocet': double.tryParse(dil.pocet.text.replaceAll(',', '.')) ?? 1.0,
+        'cena_bez_dph': double.tryParse(dil.cenaBezDph.text.replaceAll(',', '.')) ?? 0.0,
+        'cena_s_dph': double.tryParse(dil.cenaSDph.text.replaceAll(',', '.')) ?? 0.0,
+      }).where((d) => d['nazev'].toString().isNotEmpty).toList();
 
       await FirebaseFirestore.instance.collection('zakazky').doc(widget.documentId).update({
         'provedene_prace': FieldValue.arrayUnion([{
@@ -2121,6 +2618,8 @@ class _AddWorkSheetState extends State<_AddWorkSheet> {
           'popis': _popisController.text.trim(),
           'pouzite_dily': pouziteDily,
           'delka_prace': _delkaController.text.trim(),
+          'cena_bez_dph': double.tryParse(_praceCenaBezDphController.text.replaceAll(',', '.')) ?? 0.0,
+          'cena_s_dph': double.tryParse(_praceCenaSDphController.text.replaceAll(',', '.')) ?? 0.0,
           'cas': Timestamp.now(),
           'fotografie_urls': uploadedUrls,
         }])
@@ -2130,6 +2629,12 @@ class _AddWorkSheetState extends State<_AddWorkSheet> {
       ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text('Chyba: $e')));
       setState(() => _isSaving = false);
     }
+  }
+
+  void _vypocitejDPH(String hodnota, TextEditingController cilovyController) {
+    double bezDph = double.tryParse(hodnota.replaceAll(',', '.')) ?? 0.0;
+    double sDph = bezDph * 1.21;
+    cilovyController.text = sDph.toStringAsFixed(2);
   }
 
   @override
@@ -2147,42 +2652,65 @@ class _AddWorkSheetState extends State<_AddWorkSheet> {
             const SizedBox(height: 20),
             TextField(controller: _nazevController, decoration: InputDecoration(labelText: 'Název úkonu *', filled: true, fillColor: isDark ? const Color(0xFF2C2C2C) : Colors.grey[100], border: OutlineInputBorder(borderRadius: BorderRadius.circular(15), borderSide: BorderSide.none))),
             const SizedBox(height: 15),
+
+            Row(
+              children: [
+                Expanded(child: TextField(controller: _delkaController, decoration: InputDecoration(labelText: 'Délka práce (např. 1.5h)', filled: true, fillColor: isDark ? const Color(0xFF2C2C2C) : Colors.grey[100], border: OutlineInputBorder(borderRadius: BorderRadius.circular(15), borderSide: BorderSide.none)))),
+                const SizedBox(width: 10),
+                Expanded(child: TextField(
+                  controller: _praceCenaBezDphController, 
+                  keyboardType: const TextInputType.numberWithOptions(decimal: true),
+                  onChanged: (val) => _vypocitejDPH(val, _praceCenaSDphController),
+                  decoration: InputDecoration(labelText: 'Cena bez DPH', filled: true, fillColor: isDark ? const Color(0xFF2C2C2C) : Colors.grey[100], border: OutlineInputBorder(borderRadius: BorderRadius.circular(15), borderSide: BorderSide.none))
+                )),
+                const SizedBox(width: 10),
+                Expanded(child: TextField(controller: _praceCenaSDphController, keyboardType: const TextInputType.numberWithOptions(decimal: true), decoration: InputDecoration(labelText: 'Cena s DPH', filled: true, fillColor: isDark ? const Color(0xFF2C2C2C) : Colors.grey[100], border: OutlineInputBorder(borderRadius: BorderRadius.circular(15), borderSide: BorderSide.none)))),
+              ],
+            ),
+            const SizedBox(height: 15),
             
             Column(
               crossAxisAlignment: CrossAxisAlignment.start,
               children: [
                 const Text('Použité díly:', style: TextStyle(fontWeight: FontWeight.bold, color: Colors.grey)),
                 const SizedBox(height: 10),
-                ...List.generate(_dilyControllers.length, (index) {
-                  return Padding(
-                    padding: const EdgeInsets.only(bottom: 10),
-                    child: Row(
+                ...List.generate(_dilyInputs.length, (index) {
+                  final dil = _dilyInputs[index];
+                  return Container(
+                    margin: const EdgeInsets.only(bottom: 15),
+                    padding: const EdgeInsets.all(10),
+                    decoration: BoxDecoration(border: Border.all(color: Colors.grey.withOpacity(0.3)), borderRadius: BorderRadius.circular(15)),
+                    child: Column(
                       children: [
-                        Expanded(
-                          child: TextField(
-                            controller: _dilyControllers[index],
-                            decoration: InputDecoration(
-                              hintText: 'Název dílu (např. Olejový filtr)',
-                              filled: true,
-                              fillColor: isDark ? const Color(0xFF2C2C2C) : Colors.grey[100],
-                              border: OutlineInputBorder(borderRadius: BorderRadius.circular(15), borderSide: BorderSide.none),
-                              contentPadding: const EdgeInsets.symmetric(horizontal: 15, vertical: 15),
-                            ),
-                          ),
+                        Row(
+                          children: [
+                            Expanded(flex: 1, child: TextField(controller: dil.cislo, decoration: InputDecoration(hintText: 'Číslo dílu', filled: true, fillColor: isDark ? const Color(0xFF2C2C2C) : Colors.grey[100], border: OutlineInputBorder(borderRadius: BorderRadius.circular(10), borderSide: BorderSide.none), contentPadding: const EdgeInsets.symmetric(horizontal: 10, vertical: 10)))),
+                            const SizedBox(width: 10),
+                            Expanded(flex: 2, child: TextField(controller: dil.nazev, decoration: InputDecoration(hintText: 'Název dílu', filled: true, fillColor: isDark ? const Color(0xFF2C2C2C) : Colors.grey[100], border: OutlineInputBorder(borderRadius: BorderRadius.circular(10), borderSide: BorderSide.none), contentPadding: const EdgeInsets.symmetric(horizontal: 10, vertical: 10)))),
+                            IconButton(icon: const Icon(Icons.remove_circle_outline, color: Colors.red), onPressed: () => setState(() { dil.dispose(); _dilyInputs.removeAt(index); }))
+                          ],
                         ),
-                        IconButton(
-                          icon: const Icon(Icons.remove_circle_outline, color: Colors.red),
-                          onPressed: () => setState(() {
-                            _dilyControllers[index].dispose();
-                            _dilyControllers.removeAt(index);
-                          }),
-                        )
+                        const SizedBox(height: 10),
+                        Row(
+                          children: [
+                            Expanded(flex: 1, child: TextField(controller: dil.pocet, keyboardType: TextInputType.number, decoration: InputDecoration(labelText: 'Počet', filled: true, fillColor: isDark ? const Color(0xFF2C2C2C) : Colors.grey[100], border: OutlineInputBorder(borderRadius: BorderRadius.circular(10), borderSide: BorderSide.none), contentPadding: const EdgeInsets.symmetric(horizontal: 10, vertical: 10)))),
+                            const SizedBox(width: 10),
+                            Expanded(flex: 2, child: TextField(
+                              controller: dil.cenaBezDph, 
+                              keyboardType: const TextInputType.numberWithOptions(decimal: true),
+                              onChanged: (val) => _vypocitejDPH(val, dil.cenaSDph),
+                              decoration: InputDecoration(labelText: 'Cena bez DPH/ks', filled: true, fillColor: isDark ? const Color(0xFF2C2C2C) : Colors.grey[100], border: OutlineInputBorder(borderRadius: BorderRadius.circular(10), borderSide: BorderSide.none), contentPadding: const EdgeInsets.symmetric(horizontal: 10, vertical: 10))
+                            )),
+                            const SizedBox(width: 10),
+                            Expanded(flex: 2, child: TextField(controller: dil.cenaSDph, keyboardType: const TextInputType.numberWithOptions(decimal: true), decoration: InputDecoration(labelText: 'Cena s DPH/ks', filled: true, fillColor: isDark ? const Color(0xFF2C2C2C) : Colors.grey[100], border: OutlineInputBorder(borderRadius: BorderRadius.circular(10), borderSide: BorderSide.none), contentPadding: const EdgeInsets.symmetric(horizontal: 10, vertical: 10)))),
+                          ],
+                        ),
                       ],
                     ),
                   );
                 }),
                 TextButton.icon(
-                  onPressed: () => setState(() => _dilyControllers.add(TextEditingController())),
+                  onPressed: () => setState(() => _dilyInputs.add(DilInput())),
                   icon: const Icon(Icons.add),
                   label: const Text('Přidat díl'),
                 ),
@@ -2190,11 +2718,9 @@ class _AddWorkSheetState extends State<_AddWorkSheet> {
             ),
             const SizedBox(height: 15),
 
-            TextField(controller: _delkaController, decoration: InputDecoration(labelText: 'Délka práce (např. 1.5h)', filled: true, fillColor: isDark ? const Color(0xFF2C2C2C) : Colors.grey[100], border: OutlineInputBorder(borderRadius: BorderRadius.circular(15), borderSide: BorderSide.none))),
-            const SizedBox(height: 15),
-            TextField(controller: _popisController, maxLines: 2, decoration: InputDecoration(labelText: 'Popis / poznámka', filled: true, fillColor: isDark ? const Color(0xFF2C2C2C) : Colors.grey[100], border: OutlineInputBorder(borderRadius: BorderRadius.circular(15), borderSide: BorderSide.none))),
+            TextField(controller: _popisController, maxLines: 2, decoration: InputDecoration(labelText: 'Popis / poznámka k úkonu', filled: true, fillColor: isDark ? const Color(0xFF2C2C2C) : Colors.grey[100], border: OutlineInputBorder(borderRadius: BorderRadius.circular(15), borderSide: BorderSide.none))),
             const SizedBox(height: 20),
-            const Text('Fotografie:', style: TextStyle(fontWeight: FontWeight.bold)),
+            const Text('Fotografie k úkonu:', style: TextStyle(fontWeight: FontWeight.bold)),
             const SizedBox(height: 10),
             SizedBox(height: 80, child: Row(children: [GestureDetector(onTap: _takePhoto, child: Container(width: 80, decoration: BoxDecoration(color: Colors.blue.withOpacity(0.1), borderRadius: BorderRadius.circular(10), border: Border.all(color: Colors.blue)), child: const Icon(Icons.add_a_photo, color: Colors.blue))), const SizedBox(width: 10), GestureDetector(onTap: _pickFromGallery, child: Container(width: 80, decoration: BoxDecoration(color: Colors.blueGrey.withOpacity(0.1), borderRadius: BorderRadius.circular(10), border: Border.all(color: Colors.blueGrey)), child: const Icon(Icons.photo_library, color: Colors.blueGrey))), const SizedBox(width: 10), Expanded(child: ListView.builder(scrollDirection: Axis.horizontal, itemCount: _workImages.length, itemBuilder: (c, i) => Stack(children: [Container(margin: const EdgeInsets.only(right: 10), child: ClipRRect(borderRadius: BorderRadius.circular(10), child: kIsWeb ? Image.network(_workImages[i].path, width: 80, height: 80, fit: BoxFit.cover) : Image.file(File(_workImages[i].path), width: 80, height: 80, fit: BoxFit.cover))), Positioned(top: 2, right: 12, child: GestureDetector(onTap: () => setState(() => _workImages.removeAt(i)), child: const CircleAvatar(radius: 10, backgroundColor: Colors.white, child: Icon(Icons.close, size: 12, color: Colors.red))))])))])),
             const SizedBox(height: 30),
@@ -2208,7 +2734,7 @@ class _AddWorkSheetState extends State<_AddWorkSheet> {
 }
 
 // ==============================================================================
-// STRÁNKA HISTORIE ZAKÁZEK (DETAIL KE ČTENÍ A TISK PDF)
+// STRÁNKA HISTORIE ZAKÁZEK
 // ==============================================================================
 
 class HistoryPage extends StatefulWidget {
@@ -2249,36 +2775,35 @@ class _HistoryPageState extends State<HistoryPage> {
               const SizedBox(height: 15),
               Container(
                 decoration: BoxDecoration(
-                  boxShadow: [
-                    if (!isDark)
-                      BoxShadow(
-                        color: Colors.black.withOpacity(0.05),
-                        blurRadius: 10,
-                        offset: const Offset(0, 4),
-                      ),
-                  ],
                   borderRadius: BorderRadius.circular(15),
                 ),
                 child: TextField(
-                  onChanged: (value) => setState(() => _searchQuery = value.toLowerCase()),
+                  onChanged: (value) {
+                    setState(() {
+                      _searchQuery = value.toLowerCase();
+                    });
+                  },
                   decoration: InputDecoration(
                     hintText: 'Hledat SPZ, VIN nebo číslo...',
                     prefixIcon: const Icon(Icons.search, color: Colors.blue),
                     filled: true,
                     fillColor: isDark ? const Color(0xFF1E1E1E) : Colors.white,
                     enabledBorder: OutlineInputBorder(
-                        borderRadius: BorderRadius.circular(15),
-                        borderSide: BorderSide(
-                            color: isDark ? Colors.grey[800]! : Colors.grey[300]!,
-                            width: 1)),
+                      borderRadius: BorderRadius.circular(15),
+                      borderSide: BorderSide(
+                          color: isDark ? Colors.grey[800]! : Colors.grey[300]!,
+                          width: 1),
+                    ),
                     focusedBorder: OutlineInputBorder(
-                        borderRadius: BorderRadius.circular(15),
-                        borderSide: const BorderSide(color: Colors.blue, width: 2)),
+                      borderRadius: BorderRadius.circular(15),
+                      borderSide: const BorderSide(color: Colors.blue, width: 2),
+                    ),
                     border: OutlineInputBorder(
-                        borderRadius: BorderRadius.circular(15),
-                        borderSide: BorderSide(
-                            color: isDark ? Colors.grey[800]! : Colors.grey[300]!,
-                            width: 1)),
+                      borderRadius: BorderRadius.circular(15),
+                      borderSide: BorderSide(
+                          color: isDark ? Colors.grey[800]! : Colors.grey[300]!,
+                          width: 1),
+                    ),
                     contentPadding: const EdgeInsets.symmetric(vertical: 15),
                   ),
                 ),
@@ -2343,6 +2868,7 @@ class _HistoryPageState extends State<HistoryPage> {
                 itemBuilder: (context, index) {
                   final data =
                       filteredDocs[index].data() as Map<String, dynamic>;
+                  final stav = data['stav_zakazky'] ?? 'Přijato';
                   return Card(
                     color: isDark ? const Color(0xFF1E1E1E) : Colors.white,
                     shape: RoundedRectangleBorder(
@@ -2352,20 +2878,32 @@ class _HistoryPageState extends State<HistoryPage> {
                       ),
                     ),
                     child: ListTile(
-                      leading: const CircleAvatar(
-                        child: Icon(Icons.car_repair),
+                      title: Row(
+                        mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                        children: [
+                          Text('${data['spz']}', style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 18)),
+                          Container(
+                            padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 2),
+                            decoration: BoxDecoration(
+                              color: getStatusColor(stav).withOpacity(0.1),
+                              borderRadius: BorderRadius.circular(8),
+                              border: Border.all(color: getStatusColor(stav), width: 0.5),
+                            ),
+                            child: Text(stav, style: TextStyle(color: getStatusColor(stav), fontSize: 10, fontWeight: FontWeight.bold)),
+                          )
+                        ],
                       ),
-                      title: Text(
-                        'Zakázka ${data['cislo_zakazky']}',
-                        style: const TextStyle(fontWeight: FontWeight.bold),
-                      ),
-                      subtitle: Text(
-                        'SPZ: ${data['spz']}' + 
-                        (data['vin'] != null && data['vin'].toString().isNotEmpty ? ' • VIN: ${data['vin']}' : '') +
-                        '\nČas příjmu: ${_formatDate(data['cas_prijeti'])}',
+                      subtitle: Padding(
+                        padding: const EdgeInsets.only(top: 4.0),
+                        child: Text(
+                          'Zakázka: ${data['cislo_zakazky']}' + 
+                          (data['znacka'] != null && data['znacka'].toString().isNotEmpty ? ' • ${data['znacka']} ${data['model'] ?? ''}' : '') +
+                          (data['vin'] != null && data['vin'].toString().isNotEmpty ? ' • VIN: ${data['vin']}' : '') +
+                          '\nČas příjmu: ${_formatDate(data['cas_prijeti'])}',
+                        ),
                       ),
                       isThreeLine: true,
-                      onTap: () => _showDetail(context, data, isDark),
+                      onTap: () => _showHistoryDetail(context, data, isDark),
                     ),
                   );
                 },
@@ -2378,341 +2916,75 @@ class _HistoryPageState extends State<HistoryPage> {
   }
 
   // --- DETAIL ZAKÁZKY (ČTENÍ PRO HISTORII) ---
-  void _showDetail(
-    BuildContext context,
-    Map<String, dynamic> data,
-    bool isDark,
-  ) {
+  void _showHistoryDetail(BuildContext context, Map<String, dynamic> data, bool isDark) {
     final stav = data['stav_vozidla'] as Map<String, dynamic>? ?? {};
     final zakaznik = data['zakaznik'] as Map<String, dynamic>? ?? {}; 
     final rawUrls = data['fotografie_urls'];
     final Map<String, dynamic> imageUrlsByCategoryRaw = {};
-
-    if (rawUrls is Map) {
-      imageUrlsByCategoryRaw.addAll(Map<String, dynamic>.from(rawUrls));
-    } else if (rawUrls is List) {
-      imageUrlsByCategoryRaw['ostatni'] = rawUrls;
-    }
+    if (rawUrls is Map) { imageUrlsByCategoryRaw.addAll(Map<String, dynamic>.from(rawUrls)); } 
+    else if (rawUrls is List) { imageUrlsByCategoryRaw['ostatni'] = rawUrls; }
 
     final List<Map<String, String>> allPhotos = [];
-    for (var entry in imageUrlsByCategoryRaw.entries) {
-      final key = entry.key;
-      final categoryLabel =
-          photoCategories[key]?['label'] ?? 'Ostatní / Starší fotky';
-      final urls = entry.value as List<dynamic>? ?? [];
-      for (var url in urls) {
-        allPhotos.add({'url': url.toString(), 'label': categoryLabel});
-      }
-    }
+    imageUrlsByCategoryRaw.forEach((key, urls) {
+      final label = photoCategories[key]?['label'] ?? 'Ostatní';
+      for (var url in (urls as List)) { allPhotos.add({'url': url.toString(), 'label': label}); }
+    });
 
-    String poskozeniText = 'Neuvedeno';
-    if (stav['poskozeni'] is List) {
-      poskozeniText = (stav['poskozeni'] as List).join(', ');
-    } else if (stav['poskozeni'] != null) {
-      poskozeniText = stav['poskozeni'].toString();
-    }
+    String poskozeniText = (stav['poskozeni'] is List) ? (stav['poskozeni'] as List).join(', ') : (stav['poskozeni'] ?? 'Neuvedeno').toString();
 
     showModalBottomSheet(
       context: context,
       isScrollControlled: true,
       backgroundColor: isDark ? const Color(0xFF121212) : Colors.white,
-      shape: const RoundedRectangleBorder(
-        borderRadius: BorderRadius.vertical(top: Radius.circular(25)),
-      ),
+      shape: const RoundedRectangleBorder(borderRadius: BorderRadius.vertical(top: Radius.circular(25))),
       builder: (context) => Padding(
         padding: const EdgeInsets.all(30),
         child: Column(
           mainAxisSize: MainAxisSize.min,
           crossAxisAlignment: CrossAxisAlignment.start,
           children: [
-            Center(
-              child: Container(
-                width: 40,
-                height: 4,
-                decoration: BoxDecoration(
-                  color: Colors.grey[300],
-                  borderRadius: BorderRadius.circular(10),
-                ),
-              ),
-            ),
+            Center(child: Container(width: 40, height: 4, decoration: BoxDecoration(color: Colors.grey[300], borderRadius: BorderRadius.circular(10)))),
             const SizedBox(height: 20),
-
-            Row(
-              mainAxisAlignment: MainAxisAlignment.spaceBetween,
-              children: [
-                Text(
-                  'Zakázka ${data['cislo_zakazky']}',
-                  style: const TextStyle(
-                    fontSize: 24,
-                    fontWeight: FontWeight.bold,
-                  ),
-                ),
-                IconButton(
-                  icon: const Icon(
-                    Icons.picture_as_pdf,
-                    color: Colors.redAccent,
-                    size: 28,
-                  ),
-                  onPressed: () =>
-                      _exportToPdf(context, data, stav, zakaznik, imageUrlsByCategoryRaw),
-                  tooltip: 'Stáhnout PDF protokol',
-                ),
-              ],
-            ),
-            const SizedBox(height: 10),
-
-            Text(
-              'SPZ: ${data['spz']}',
-              style: const TextStyle(
-                fontSize: 18,
-                color: Colors.blue,
-                fontWeight: FontWeight.w500,
-              ),
-            ),
-            if (data['vin'] != null && data['vin'].toString().isNotEmpty)
-              Text(
-                'VIN: ${data['vin']}',
-                style: const TextStyle(
-                  fontSize: 16,
-                  fontWeight: FontWeight.bold,
-                ),
-              ),
-            const SizedBox(height: 4),
-            Text(
-              'Přijato: ${_formatDate(data['cas_prijeti'])}',
-              style: TextStyle(
-                color: isDark ? Colors.grey[400] : Colors.grey[700],
-              ),
-            ),
-
+            Row(mainAxisAlignment: MainAxisAlignment.spaceBetween, children: [
+              Text('Zakázka ${data['cislo_zakazky']}', style: const TextStyle(fontSize: 24, fontWeight: FontWeight.bold)),
+              IconButton(icon: const Icon(Icons.picture_as_pdf, color: Colors.redAccent, size: 28), onPressed: () => _exportHistoryToPdf(context, data), tooltip: 'Stáhnout PDF'),
+            ]),
+            Text('SPZ: ${data['spz']}', style: const TextStyle(fontSize: 18, color: Colors.blue, fontWeight: FontWeight.w500)),
+            if (data['vin'] != null && data['vin'].toString().isNotEmpty) Text('VIN: ${data['vin']}', style: const TextStyle(fontWeight: FontWeight.bold)),
+            Text('Přijato: ${_formatDate(data['cas_prijeti'])}', style: TextStyle(color: Colors.grey[600])),
+            
             const Divider(height: 40),
-
-            // Zákazník v Detailu
+            
             if (zakaznik.isNotEmpty && (zakaznik['jmeno']?.toString().isNotEmpty == true || zakaznik['ico']?.toString().isNotEmpty == true)) ...[
-              const Text(
-                'Zákazník:',
-                style: TextStyle(fontWeight: FontWeight.bold, fontSize: 16),
-              ),
+              const Text('Zákazník:', style: TextStyle(fontWeight: FontWeight.bold, fontSize: 16)),
               const SizedBox(height: 15),
-              if (zakaznik['jmeno']?.toString().isNotEmpty == true)
-                _buildDetailRow('Jméno / Firma:', zakaznik['jmeno'], Icons.person, Colors.blueGrey),
-              if (zakaznik['ico']?.toString().isNotEmpty == true)
-                _buildDetailRow('IČO:', zakaznik['ico'], Icons.business, Colors.blueGrey),
-              if (zakaznik['adresa']?.toString().isNotEmpty == true)
-                _buildDetailRow('Adresa:', zakaznik['adresa'], Icons.location_on, Colors.blueGrey),
-              if (zakaznik['telefon']?.toString().isNotEmpty == true)
-                _buildDetailRow('Telefon:', zakaznik['telefon'], Icons.phone, Colors.blueGrey),
-              if (zakaznik['email']?.toString().isNotEmpty == true)
-                Container(
-                  padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
-                  decoration: BoxDecoration(
-                    color: Colors.blue.withOpacity(0.1),
-                    borderRadius: BorderRadius.circular(10)
-                  ),
-                  child: Row(
-                    children: [
-                      const Icon(Icons.email, color: Colors.blue, size: 20),
-                      const SizedBox(width: 10),
-                      Expanded(child: SelectableText(zakaznik['email'], style: const TextStyle(fontWeight: FontWeight.bold, color: Colors.blue))),
-                    ],
-                  ),
-                ),
+              if (zakaznik['jmeno']?.toString().isNotEmpty == true) _buildDetailRow('Jméno / Firma:', zakaznik['jmeno'], Icons.person, Colors.blueGrey),
+              if (zakaznik['ico']?.toString().isNotEmpty == true) _buildDetailRow('IČO:', zakaznik['ico'], Icons.business, Colors.blueGrey),
+              if (zakaznik['adresa']?.toString().isNotEmpty == true) _buildDetailRow('Adresa:', zakaznik['adresa'], Icons.location_on, Colors.blueGrey),
+              if (zakaznik['telefon']?.toString().isNotEmpty == true) _buildDetailRow('Telefon:', zakaznik['telefon'], Icons.phone, Colors.blueGrey),
+              if (zakaznik['email']?.toString().isNotEmpty == true) _buildDetailRow('E-mail:', zakaznik['email'], Icons.email, Colors.blueGrey),
               const Divider(height: 40),
             ],
 
-            const Text(
-              'Stav vozidla:',
-              style: TextStyle(fontWeight: FontWeight.bold, fontSize: 16),
-            ),
+            const Text('Stav vozidla:', style: TextStyle(fontWeight: FontWeight.bold, fontSize: 16)),
             const SizedBox(height: 15),
+            
+            if (data['znacka'] != null && data['znacka'].toString().isNotEmpty) _buildDetailRow('Značka:', data['znacka'], Icons.directions_car, Colors.blueGrey),
+            if (data['model'] != null && data['model'].toString().isNotEmpty) _buildDetailRow('Model:', data['model'], Icons.directions_car_filled, Colors.blueGrey),
+            if (data['rok_vyroby'] != null && data['rok_vyroby'].toString().isNotEmpty) _buildDetailRow('Rok výroby:', data['rok_vyroby'], Icons.calendar_today, Colors.blueGrey),
 
-            if (data['motorizace'] != null && data['motorizace'].toString().isNotEmpty)
-              _buildDetailRow('Motor:', data['motorizace'], Icons.settings, Colors.blueGrey),
-            if (data['palivo_typ'] != null && data['palivo_typ'].toString().isNotEmpty)
-              _buildDetailRow('Palivo:', data['palivo_typ'], Icons.local_gas_station, Colors.blueGrey),
-            if (data['prevodovka'] != null && data['prevodovka'].toString().isNotEmpty)
-              _buildDetailRow('Převodovka:', data['prevodovka'], Icons.settings_input_component, Colors.blueGrey),
+            if (data['motorizace'] != null && data['motorizace'].toString().isNotEmpty) _buildDetailRow('Motor:', data['motorizace'], Icons.settings, Colors.blueGrey),
+            if (data['palivo_typ'] != null && data['palivo_typ'].toString().isNotEmpty) _buildDetailRow('Palivo:', data['palivo_typ'], Icons.local_gas_station, Colors.blueGrey),
+            if (data['prevodovka'] != null && data['prevodovka'].toString().isNotEmpty) _buildDetailRow('Převodovka:', data['prevodovka'], Icons.settings_input_component, Colors.blueGrey),
 
-            _buildDetailRow(
-              'Tachometr:',
-              '${stav['tachometr']?.toString().isNotEmpty == true ? stav['tachometr'] : 'Neuvedeno'} km',
-              Icons.speed,
-              Colors.grey,
-            ),
-            _buildDetailRow(
-              'Palivo:',
-              stav['nadrz'] != null ? '${stav['nadrz'].toInt()} %' : 'Neuvedeno',
-              Icons.local_gas_station,
-              Colors.blueGrey,
-            ),
-            const SizedBox(height: 10),
-
-            _buildDetailRow(
-              'Poškození:',
-              poskozeniText,
-              Icons.warning_amber_rounded,
-              Colors.orange,
-            ),
-            _buildDetailRow(
-              'Platnost STK:',
-              '${stav['stk_mesic'] ?? '-'} / ${stav['stk_rok'] ?? '-'}',
-              Icons.calendar_month_rounded,
-              Colors.blue,
-            ),
-
-            const SizedBox(height: 10),
-            const Text(
-              'Dezén Pneu:',
-              style: TextStyle(color: Colors.grey, fontWeight: FontWeight.bold),
-            ),
-            const SizedBox(height: 5),
-            Row(
-              mainAxisAlignment: MainAxisAlignment.spaceAround,
-              children: [
-                Column(
-                  children: [
-                    const Text('LP', style: TextStyle(color: Colors.grey)),
-                    Text(
-                      '${stav['pneu_lp'] ?? '-'} mm',
-                      style: const TextStyle(fontWeight: FontWeight.bold),
-                    ),
-                  ],
-                ),
-                Column(
-                  children: [
-                    const Text('PP', style: TextStyle(color: Colors.grey)),
-                    Text(
-                      '${stav['pneu_pp'] ?? '-'} mm',
-                      style: const TextStyle(fontWeight: FontWeight.bold),
-                    ),
-                  ],
-                ),
-                Column(
-                  children: [
-                    const Text('LZ', style: TextStyle(color: Colors.grey)),
-                    Text(
-                      '${stav['pneu_lz'] ?? '-'} mm',
-                      style: const TextStyle(fontWeight: FontWeight.bold),
-                    ),
-                  ],
-                ),
-                Column(
-                  children: [
-                    const Text('PZ', style: TextStyle(color: Colors.grey)),
-                    Text(
-                      '${stav['pneu_pz'] ?? '-'} mm',
-                      style: const TextStyle(fontWeight: FontWeight.bold),
-                    ),
-                  ],
-                ),
-              ],
-            ),
+            _buildDetailRow('Tachometr:', '${stav['tachometr'] ?? '-'} km', Icons.speed, Colors.grey),
+            _buildDetailRow('Palivo:', '${stav['nadrz']?.toInt() ?? '-'} %', Icons.local_gas_station, Colors.blueGrey),
+            _buildDetailRow('Poškození:', poskozeniText, Icons.warning_amber_rounded, Colors.orange),
+            
             const SizedBox(height: 20),
-
-            if (data['poznamky'] != null &&
-                data['poznamky'].toString().isNotEmpty) ...[
-              const SizedBox(height: 10),
-              const Text(
-                'Poznámky:',
-                style: TextStyle(fontWeight: FontWeight.bold, fontSize: 16),
-              ),
-              const SizedBox(height: 5),
-              Text(
-                data['poznamky'],
-                style: TextStyle(
-                  color: isDark ? Colors.grey[300] : Colors.black87,
-                ),
-              ),
-            ],
-
-            const SizedBox(height: 30),
-
-            const Text(
-              'Fotografie:',
-              style: TextStyle(fontWeight: FontWeight.bold, fontSize: 16),
-            ),
-            const SizedBox(height: 15),
-
-            if (allPhotos.isEmpty)
-              const Text('Žádné fotografie nebyly pořízeny.')
-            else
-              SizedBox(
-                height: 220,
-                child: ListView.separated(
-                  scrollDirection: Axis.horizontal,
-                  itemCount: allPhotos.length,
-                  separatorBuilder: (context, index) =>
-                      const SizedBox(width: 15),
-                  itemBuilder: (context, i) {
-                    final photo = allPhotos[i];
-                    final imageUrl = photo['url']!;
-                    final label = photo['label']!;
-
-                    return GestureDetector(
-                      onTap: () => html.window.open(imageUrl, "_blank"),
-                      child: Column(
-                        crossAxisAlignment: CrossAxisAlignment.start,
-                        children: [
-                          ClipRRect(
-                            borderRadius: BorderRadius.circular(15),
-                            child: Image.network(
-                              imageUrl,
-                              width: 250,
-                              height: 180,
-                              fit: BoxFit.cover,
-                              errorBuilder: (context, error, stackTrace) =>
-                                  Container(
-                                    width: 250,
-                                    height: 180,
-                                    color: Colors.grey[200],
-                                    child: const Column(
-                                      mainAxisAlignment:
-                                          MainAxisAlignment.center,
-                                      children: [
-                                        Icon(
-                                          Icons.broken_image,
-                                          color: Colors.red,
-                                          size: 40,
-                                        ),
-                                        SizedBox(height: 8),
-                                        Text(
-                                          'Chyba (CORS)',
-                                          style: TextStyle(
-                                            fontSize: 12,
-                                            color: Colors.red,
-                                          ),
-                                        ),
-                                      ],
-                                    ),
-                                  ),
-                              loadingBuilder:
-                                  (context, child, loadingProgress) {
-                                    if (loadingProgress == null) return child;
-                                    return Container(
-                                      width: 250,
-                                      height: 180,
-                                      color: Colors.grey[100],
-                                      child: const Center(
-                                        child: CircularProgressIndicator(),
-                                      ),
-                                    );
-                                  },
-                            ),
-                          ),
-                          const SizedBox(height: 8),
-                          Text(
-                            label,
-                            style: const TextStyle(
-                              fontSize: 12,
-                              color: Colors.blue,
-                            ),
-                          ),
-                        ],
-                      ),
-                    );
-                  },
-                ),
-              ),
+            const Text('Fotografie z příjmu:', style: TextStyle(fontWeight: FontWeight.bold)),
+            const SizedBox(height: 10),
+            if (allPhotos.isEmpty) const Text('Žádné fotky.') else SizedBox(height: 150, child: ListView.separated(scrollDirection: Axis.horizontal, itemCount: allPhotos.length, separatorBuilder: (c, i) => const SizedBox(width: 15), itemBuilder: (c, i) => GestureDetector(onTap: () => html.window.open(allPhotos[i]['url']!, "_blank"), child: Column(children: [ClipRRect(borderRadius: BorderRadius.circular(10), child: Image.network(allPhotos[i]['url']!, width: 180, height: 120, fit: BoxFit.cover)), const SizedBox(height: 4), Text(allPhotos[i]['label']!, style: const TextStyle(fontSize: 10, color: Colors.blue))])))),
             const SizedBox(height: 40),
           ],
         ),
@@ -2720,60 +2992,68 @@ class _HistoryPageState extends State<HistoryPage> {
     );
   }
 
-  Widget _buildDetailRow(
-    String label,
-    String value,
-    IconData icon,
-    Color iconColor,
-  ) {
-    return Padding(
-      padding: const EdgeInsets.only(bottom: 12),
-      child: Row(
-        crossAxisAlignment:
-            CrossAxisAlignment.start, 
+  Widget _buildDetailRow(String l, String v, IconData i, Color c) => Padding(padding: const EdgeInsets.only(bottom: 12), child: Row(crossAxisAlignment: CrossAxisAlignment.start, children: [Icon(i, color: c, size: 20), const SizedBox(width: 10), Text(l, style: const TextStyle(color: Colors.grey)), const SizedBox(width: 10), Expanded(child: Text(v, style: const TextStyle(fontWeight: FontWeight.bold)))]));
+
+  pw.Widget _buildCompactRow(String label1, String value1, String label2, String value2, pw.Font fontReg, pw.Font fontBld) {
+    return pw.Padding(
+      padding: const pw.EdgeInsets.only(bottom: 4),
+      child: pw.Row(
         children: [
-          Icon(icon, color: iconColor, size: 20),
-          const SizedBox(width: 10),
-          Text(label, style: const TextStyle(color: Colors.grey)),
-          const SizedBox(width: 10),
-          Expanded(
-            child: Text(
-              value,
-              style: const TextStyle(fontWeight: FontWeight.bold),
+          pw.Expanded(
+            child: pw.Row(
+              crossAxisAlignment: pw.CrossAxisAlignment.start,
+              children: [
+                pw.Text(label1, style: pw.TextStyle(font: fontReg, fontSize: 10, color: PdfColors.grey700)),
+                pw.SizedBox(width: 4),
+                pw.Expanded(child: pw.Text(value1, style: pw.TextStyle(font: fontBld, fontSize: 11))),
+              ]
             ),
           ),
-        ],
-      ),
+          if (label2.isNotEmpty)
+            pw.Expanded(
+              child: pw.Row(
+                crossAxisAlignment: pw.CrossAxisAlignment.start,
+                children: [
+                  pw.Text(label2, style: pw.TextStyle(font: fontReg, fontSize: 10, color: PdfColors.grey700)),
+                  pw.SizedBox(width: 4),
+                  pw.Expanded(child: pw.Text(value2, style: pw.TextStyle(font: fontBld, fontSize: 11))),
+                ]
+              ),
+            )
+          else
+            pw.Expanded(child: pw.SizedBox()),
+        ]
+      )
     );
   }
 
-  // --- PDF EXPORT ---
-  Future<void> _exportToPdf(
-    BuildContext context,
-    Map<String, dynamic> data,
-    Map<String, dynamic> stav,
-    Map<String, dynamic> zakaznik,
-    Map<String, dynamic> imageUrlsByCategory,
-  ) async {
-    ScaffoldMessenger.of(context).showSnackBar(
-      const SnackBar(
-        content: Text('Generuji PDF protokol (po vygenerování vyberte E-mail k odeslání)...'),
-        duration: Duration(seconds: 2),
-      ),
-    );
-
+  Future<void> _exportHistoryToPdf(BuildContext context, Map<String, dynamic> data) async {
+    ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('Generuji PDF...'), duration: Duration(seconds: 1)));
+    
+    final stav = data['stav_vozidla'] as Map<String, dynamic>? ?? {};
+    final zakaznik = data['zakaznik'] as Map<String, dynamic>? ?? {}; 
     final provedenePrace = data['provedene_prace'] as List<dynamic>? ?? [];
+    final podpisUrl = data['podpis_url'] as String?; 
+    pw.MemoryImage? podpisImage;
+
+    if (podpisUrl != null) {
+      try {
+        final response = await http.get(Uri.parse(podpisUrl));
+        if (response.statusCode == 200) {
+          podpisImage = pw.MemoryImage(response.bodyBytes);
+        }
+      } catch (e) {
+        debugPrint("Chyba podpisu PDF: $e");
+      }
+    }
 
     final pdf = pw.Document();
     final fontRegular = await PdfGoogleFonts.robotoRegular();
     final fontBold = await PdfGoogleFonts.robotoBold();
 
     String poskozeniPdfText = 'Neuvedeno';
-    if (stav['poskozeni'] is List) {
-      poskozeniPdfText = (stav['poskozeni'] as List).join(', ');
-    } else if (stav['poskozeni'] != null) {
-      poskozeniPdfText = stav['poskozeni'].toString();
-    }
+    if (stav['poskozeni'] is List) poskozeniPdfText = (stav['poskozeni'] as List).join(', ');
+    else if (stav['poskozeni'] != null) poskozeniPdfText = stav['poskozeni'].toString();
 
     pdf.addPage(
       pw.MultiPage(
@@ -2786,410 +3066,114 @@ class _HistoryPageState extends State<HistoryPage> {
               child: pw.Row(
                 mainAxisAlignment: pw.MainAxisAlignment.spaceBetween,
                 children: [
-                  pw.Text(
-                    'VISTO',
-                    style: pw.TextStyle(
-                      font: fontBold,
-                      fontSize: 28,
-                      color: PdfColors.blue800,
-                    ),
-                  ),
-                  pw.Text(
-                    'Protokol o příjmu a opravě',
-                    style: pw.TextStyle(
-                      font: fontRegular,
-                      fontSize: 20,
-                      color: PdfColors.grey600,
-                    ),
-                  ),
+                  pw.Text('VISTO', style: pw.TextStyle(font: fontBold, fontSize: 28, color: PdfColors.blue800)),
+                  pw.Text('Protokol o příjmu a opravě', style: pw.TextStyle(font: fontRegular, fontSize: 20, color: PdfColors.grey600)),
                 ],
               ),
             ),
-            pw.SizedBox(height: 20),
+            pw.SizedBox(height: 15),
 
             if (zakaznik.isNotEmpty && (zakaznik['jmeno']?.toString().isNotEmpty == true || zakaznik['ico']?.toString().isNotEmpty == true)) ...[
               pw.Container(
-                padding: const pw.EdgeInsets.all(15),
-                decoration: pw.BoxDecoration(
-                  color: PdfColors.blue50,
-                  borderRadius: const pw.BorderRadius.all(
-                    pw.Radius.circular(10),
-                  ),
-                ),
+                padding: const pw.EdgeInsets.all(10),
+                decoration: pw.BoxDecoration(color: PdfColors.blue50, borderRadius: pw.BorderRadius.circular(8)),
                 child: pw.Column(
                   crossAxisAlignment: pw.CrossAxisAlignment.start,
                   children: [
-                    pw.Text('Údaje o zákazníkovi', style: pw.TextStyle(font: fontBold, fontSize: 14, color: PdfColors.blue800)),
-                    pw.SizedBox(height: 10),
-                    if (zakaznik['jmeno']?.toString().isNotEmpty == true)
-                      pw.Row(mainAxisAlignment: pw.MainAxisAlignment.spaceBetween, children: [pw.Text('Jméno / Firma:', style: pw.TextStyle(font: fontRegular, fontSize: 12)), pw.Text(zakaznik['jmeno'].toString(), style: pw.TextStyle(font: fontBold, fontSize: 12))]),
-                    if (zakaznik['ico']?.toString().isNotEmpty == true)
-                      pw.Row(mainAxisAlignment: pw.MainAxisAlignment.spaceBetween, children: [pw.Text('IČO:', style: pw.TextStyle(font: fontRegular, fontSize: 12)), pw.Text(zakaznik['ico'].toString(), style: pw.TextStyle(font: fontBold, fontSize: 12))]),
-                    if (zakaznik['adresa']?.toString().isNotEmpty == true)
-                      pw.Row(mainAxisAlignment: pw.MainAxisAlignment.spaceBetween, children: [pw.Text('Adresa:', style: pw.TextStyle(font: fontRegular, fontSize: 12)), pw.Text(zakaznik['adresa'].toString(), style: pw.TextStyle(font: fontBold, fontSize: 12))]),
-                    if (zakaznik['telefon']?.toString().isNotEmpty == true)
-                      pw.Row(mainAxisAlignment: pw.MainAxisAlignment.spaceBetween, children: [pw.Text('Telefon:', style: pw.TextStyle(font: fontRegular, fontSize: 12)), pw.Text(zakaznik['telefon'].toString(), style: pw.TextStyle(font: fontBold, fontSize: 12))]),
-                    if (zakaznik['email']?.toString().isNotEmpty == true)
-                      pw.Row(mainAxisAlignment: pw.MainAxisAlignment.spaceBetween, children: [pw.Text('E-mail:', style: pw.TextStyle(font: fontRegular, fontSize: 12)), pw.Text(zakaznik['email'].toString(), style: pw.TextStyle(font: fontBold, fontSize: 12))]),
-                  ],
-                ),
+                    pw.Text('Údaje o zákazníkovi', style: pw.TextStyle(font: fontBold, fontSize: 12, color: PdfColors.blue800)),
+                    pw.SizedBox(height: 5),
+                    _buildCompactRow('Jméno / Firma:', zakaznik['jmeno']?.toString() ?? '-', 'IČO:', zakaznik['ico']?.toString() ?? '-', fontRegular, fontBold),
+                    _buildCompactRow('Adresa:', zakaznik['adresa']?.toString() ?? '-', 'Telefon:', zakaznik['telefon']?.toString() ?? '-', fontRegular, fontBold),
+                    _buildCompactRow('E-mail:', zakaznik['email']?.toString() ?? '-', '', '', fontRegular, fontBold),
+                  ]
+                )
               ),
-              pw.SizedBox(height: 20),
+              pw.SizedBox(height: 15),
             ],
 
             pw.Container(
-              padding: const pw.EdgeInsets.all(15),
-              decoration: pw.BoxDecoration(
-                color: PdfColors.grey100,
-                borderRadius: const pw.BorderRadius.all(
-                  pw.Radius.circular(10),
-                ),
-              ),
+              padding: const pw.EdgeInsets.all(10),
+              decoration: pw.BoxDecoration(color: PdfColors.grey100, borderRadius: pw.BorderRadius.circular(8)),
               child: pw.Column(
                 crossAxisAlignment: pw.CrossAxisAlignment.start,
                 children: [
-                  pw.Row(
-                    mainAxisAlignment: pw.MainAxisAlignment.spaceBetween,
-                    children: [
-                      pw.Text(
-                        'Zakázka č.:',
-                        style: pw.TextStyle(font: fontRegular, fontSize: 14),
-                      ),
-                      pw.Text(
-                        data['cislo_zakazky'].toString(),
-                        style: pw.TextStyle(font: fontBold, fontSize: 16),
-                      ),
-                    ],
-                  ),
-                  pw.Divider(color: PdfColors.grey300),
-                  pw.Row(
-                    mainAxisAlignment: pw.MainAxisAlignment.spaceBetween,
-                    children: [
-                      pw.Text(
-                        'SPZ vozidla:',
-                        style: pw.TextStyle(font: fontRegular, fontSize: 14),
-                      ),
-                      pw.Text(
-                        data['spz'].toString(),
-                        style: pw.TextStyle(font: fontBold, fontSize: 16),
-                      ),
-                    ],
-                  ),
-                  if (data['vin'] != null &&
-                      data['vin'].toString().isNotEmpty) ...[
-                    pw.Divider(color: PdfColors.grey300),
-                    pw.Row(
-                      mainAxisAlignment: pw.MainAxisAlignment.spaceBetween,
-                      children: [
-                        pw.Text(
-                          'VIN kód:',
-                          style: pw.TextStyle(
-                            font: fontRegular,
-                            fontSize: 14,
-                          ),
-                        ),
-                        pw.Text(
-                          data['vin'].toString(),
-                          style: pw.TextStyle(font: fontBold, fontSize: 16),
-                        ),
-                      ],
-                    ),
-                  ],
-                  if (data['motorizace'] != null && data['motorizace'].toString().isNotEmpty) ...[
-                    pw.Divider(color: PdfColors.grey300),
-                    pw.Row(
-                      mainAxisAlignment: pw.MainAxisAlignment.spaceBetween,
-                      children: [
-                        pw.Text('Motorizace:', style: pw.TextStyle(font: fontRegular, fontSize: 14)),
-                        pw.Text(data['motorizace'].toString(), style: pw.TextStyle(font: fontBold, fontSize: 16)),
-                      ],
-                    ),
-                  ],
-                  if (data['palivo_typ'] != null && data['palivo_typ'].toString().isNotEmpty) ...[
-                    pw.Divider(color: PdfColors.grey300),
-                    pw.Row(
-                      mainAxisAlignment: pw.MainAxisAlignment.spaceBetween,
-                      children: [
-                        pw.Text('Typ paliva:', style: pw.TextStyle(font: fontRegular, fontSize: 14)),
-                        pw.Text(data['palivo_typ'].toString(), style: pw.TextStyle(font: fontBold, fontSize: 16)),
-                      ],
-                    ),
-                  ],
-                  if (data['prevodovka'] != null && data['prevodovka'].toString().isNotEmpty) ...[
-                    pw.Divider(color: PdfColors.grey300),
-                    pw.Row(
-                      mainAxisAlignment: pw.MainAxisAlignment.spaceBetween,
-                      children: [
-                        pw.Text('Převodovka:', style: pw.TextStyle(font: fontRegular, fontSize: 14)),
-                        pw.Text(data['prevodovka'].toString(), style: pw.TextStyle(font: fontBold, fontSize: 16)),
-                      ],
-                    ),
-                  ],
-                  pw.Divider(color: PdfColors.grey300),
-                  pw.Row(
-                    mainAxisAlignment: pw.MainAxisAlignment.spaceBetween,
-                    children: [
-                      pw.Text(
-                        'Datum a čas příjmu:',
-                        style: pw.TextStyle(font: fontRegular, fontSize: 14),
-                      ),
-                      pw.Text(
-                        _formatDate(data['cas_prijeti']),
-                        style: pw.TextStyle(font: fontBold, fontSize: 14),
-                      ),
-                    ],
-                  ),
-                ],
-              ),
-            ),
-            pw.SizedBox(height: 30),
-
-            pw.Text(
-              'Stav vozidla při příjmu',
-              style: pw.TextStyle(font: fontBold, fontSize: 18),
-            ),
-            pw.SizedBox(height: 15),
-
-            pw.Row(
-              mainAxisAlignment: pw.MainAxisAlignment.spaceBetween,
-              children: [
-                pw.Text(
-                  'Stav tachometru:',
-                  style: pw.TextStyle(font: fontRegular),
-                ),
-                pw.Text(
-                  '${stav['tachometr']?.toString().isNotEmpty == true ? stav['tachometr'] : 'Neuvedeno'} km',
-                  style: pw.TextStyle(font: fontBold),
-                ),
-              ],
-            ),
-            pw.SizedBox(height: 5),
-            pw.Row(
-              mainAxisAlignment: pw.MainAxisAlignment.spaceBetween,
-              children: [
-                pw.Text(
-                  'Stav paliva v nádrži:',
-                  style: pw.TextStyle(font: fontRegular),
-                ),
-                pw.Text(
-                  stav['nadrz'] != null ? '${stav['nadrz'].toInt()} %' : 'Neuvedeno',
-                  style: pw.TextStyle(font: fontBold),
-                ),
-              ],
-            ),
-            pw.SizedBox(height: 5),
-
-            pw.Row(
-              mainAxisAlignment: pw.MainAxisAlignment.spaceBetween,
-              children: [
-                pw.Text(
-                  'Zjištěné poškození:',
-                  style: pw.TextStyle(font: fontRegular),
-                ),
-                pw.Expanded(
-                  child: pw.Text(
-                    poskozeniPdfText,
-                    style: pw.TextStyle(font: fontBold),
-                    textAlign: pw.TextAlign.right,
-                  ),
-                ),
-              ],
-            ),
-            pw.SizedBox(height: 10),
-            pw.Row(
-              mainAxisAlignment: pw.MainAxisAlignment.spaceBetween,
-              children: [
-                pw.Text(
-                  'Platnost STK:',
-                  style: pw.TextStyle(font: fontRegular),
-                ),
-                pw.Text(
-                  '${stav['stk_mesic'] ?? '-'} / ${stav['stk_rok'] ?? '-'}',
-                  style: pw.TextStyle(font: fontBold),
-                ),
-              ],
+                  pw.Text('Údaje o vozidle', style: pw.TextStyle(font: fontBold, fontSize: 12, color: PdfColors.grey800)),
+                  pw.SizedBox(height: 5),
+                  _buildCompactRow('Zakázka č.:', data['cislo_zakazky'].toString(), 'Přijato:', _formatDate(data['cas_prijeti']), fontRegular, fontBold),
+                  _buildCompactRow('SPZ:', data['spz'].toString(), 'VIN:', data['vin']?.toString() ?? '-', fontRegular, fontBold),
+                  _buildCompactRow('Značka:', data['znacka']?.toString() ?? '-', 'Model:', data['model']?.toString() ?? '-', fontRegular, fontBold),
+                  _buildCompactRow('Rok výroby:', data['rok_vyroby']?.toString() ?? '-', 'Motorizace:', data['motorizace']?.toString() ?? '-', fontRegular, fontBold),
+                  _buildCompactRow('Typ paliva:', data['palivo_typ']?.toString() ?? '-', 'Převodovka:', data['prevodovka']?.toString() ?? '-', fontRegular, fontBold),
+                ]
+              )
             ),
             pw.SizedBox(height: 20),
 
-            pw.Text(
-              'Hloubka dezénu pneu:',
-              style: pw.TextStyle(font: fontBold, fontSize: 14),
-            ),
-            pw.SizedBox(height: 10),
+            pw.Text('Stav vozidla při příjmu', style: pw.TextStyle(font: fontBold, fontSize: 14)),
+            pw.SizedBox(height: 8),
+            _buildCompactRow('Tachometr:', '${stav['tachometr']?.toString().isNotEmpty == true ? stav['tachometr'] : '-'} km', 'Palivo v nádrži:', '${stav['nadrz']?.toInt() ?? '-'} %', fontRegular, fontBold),
+            _buildCompactRow('Platnost STK:', '${stav['stk_mesic'] ?? '-'} / ${stav['stk_rok'] ?? '-'}', 'Poškození:', poskozeniPdfText, fontRegular, fontBold),
+            pw.SizedBox(height: 15),
+
+            pw.Text('Hloubka dezénu pneu:', style: pw.TextStyle(font: fontBold, fontSize: 12)),
+            pw.SizedBox(height: 5),
             pw.Container(
-              padding: const pw.EdgeInsets.all(10),
-              decoration: pw.BoxDecoration(
-                border: pw.Border.all(color: PdfColors.grey300),
-                borderRadius: const pw.BorderRadius.all(
-                  pw.Radius.circular(8),
-                ),
-              ),
+              padding: const pw.EdgeInsets.all(8),
+              decoration: pw.BoxDecoration(border: pw.Border.all(color: PdfColors.grey300), borderRadius: pw.BorderRadius.circular(8)),
               child: pw.Row(
                 mainAxisAlignment: pw.MainAxisAlignment.spaceAround,
                 children: [
-                  pw.Column(
-                    children: [
-                      pw.Text(
-                        'Levá Přední',
-                        style: pw.TextStyle(
-                          font: fontRegular,
-                          color: PdfColors.grey600,
-                          fontSize: 10,
-                        ),
-                      ),
-                      pw.Text(
-                        '${stav['pneu_lp'] ?? '-'} mm',
-                        style: pw.TextStyle(font: fontBold),
-                      ),
-                    ],
-                  ),
-                  pw.Column(
-                    children: [
-                      pw.Text(
-                        'Pravá Přední',
-                        style: pw.TextStyle(
-                          font: fontRegular,
-                          color: PdfColors.grey600,
-                          fontSize: 10,
-                        ),
-                      ),
-                      pw.Text(
-                        '${stav['pneu_pp'] ?? '-'} mm',
-                        style: pw.TextStyle(font: fontBold),
-                      ),
-                    ],
-                  ),
-                  pw.Column(
-                    children: [
-                      pw.Text(
-                        'Levá Zadní',
-                        style: pw.TextStyle(
-                          font: fontRegular,
-                          color: PdfColors.grey600,
-                          fontSize: 10,
-                        ),
-                      ),
-                      pw.Text(
-                        '${stav['pneu_lz'] ?? '-'} mm',
-                        style: pw.TextStyle(font: fontBold),
-                      ),
-                    ],
-                  ),
-                  pw.Column(
-                    children: [
-                      pw.Text(
-                        'Pravá Zadní',
-                        style: pw.TextStyle(
-                          font: fontRegular,
-                          color: PdfColors.grey600,
-                          fontSize: 10,
-                        ),
-                      ),
-                      pw.Text(
-                        '${stav['pneu_pz'] ?? '-'} mm',
-                        style: pw.TextStyle(font: fontBold),
-                      ),
-                    ],
-                  ),
+                  pw.Column(children: [pw.Text('Levá Přední', style: pw.TextStyle(font: fontRegular, color: PdfColors.grey600, fontSize: 9)), pw.Text('${stav['pneu_lp'] ?? '-'} mm', style: pw.TextStyle(font: fontBold, fontSize: 11))]),
+                  pw.Column(children: [pw.Text('Pravá Přední', style: pw.TextStyle(font: fontRegular, color: PdfColors.grey600, fontSize: 9)), pw.Text('${stav['pneu_pp'] ?? '-'} mm', style: pw.TextStyle(font: fontBold, fontSize: 11))]),
+                  pw.Column(children: [pw.Text('Levá Zadní', style: pw.TextStyle(font: fontRegular, color: PdfColors.grey600, fontSize: 9)), pw.Text('${stav['pneu_lz'] ?? '-'} mm', style: pw.TextStyle(font: fontBold, fontSize: 11))]),
+                  pw.Column(children: [pw.Text('Pravá Zadní', style: pw.TextStyle(font: fontRegular, color: PdfColors.grey600, fontSize: 9)), pw.Text('${stav['pneu_pz'] ?? '-'} mm', style: pw.TextStyle(font: fontBold, fontSize: 11))]),
                 ],
               ),
             ),
-
-            pw.SizedBox(height: 30),
-            pw.Text(
-              'Fotodokumentace příjmu',
-              style: pw.TextStyle(font: fontBold, fontSize: 18),
-            ),
-            pw.SizedBox(height: 15),
-
-            if (imageUrlsByCategory.values.every(
-              (list) => (list as List).isEmpty,
-            ))
-              pw.Text(
-                'Žádné fotografie nebyly pořízeny.',
-                style: pw.TextStyle(font: fontRegular, fontSize: 12),
-              )
-            else
-              ...imageUrlsByCategory.entries
-                  .where((e) => (e.value as List<dynamic>).isNotEmpty)
-                  .map((entry) {
-                    final key = entry.key;
-                    final urls = entry.value as List<dynamic>;
-                    final category = photoCategories[key];
-                    final label = category != null
-                        ? category['label'] as String
-                        : 'Ostatní / Starší fotky';
-
-                    return pw.Padding(
-                      padding: const pw.EdgeInsets.only(bottom: 5),
-                      child: pw.Row(
-                        children: [
-                          pw.Container(
-                            width: 4,
-                            height: 4,
-                            decoration: const pw.BoxDecoration(
-                              shape: pw.BoxShape.circle,
-                              color: PdfColors.blue,
-                            ),
-                          ),
-                          pw.SizedBox(width: 8),
-                          pw.Text(
-                            '$label (${urls.length}x)',
-                            style: pw.TextStyle(
-                              font: fontRegular,
-                              fontSize: 12,
-                            ),
-                          ),
-                        ],
-                      ),
-                    );
-                  })
-                  .toList(),
-
             pw.SizedBox(height: 20),
 
+            if (data['poznamky'] != null && data['poznamky'].toString().isNotEmpty) ...[
+              pw.Text('Poznámky k příjmu:', style: pw.TextStyle(font: fontBold, fontSize: 12)),
+              pw.SizedBox(height: 5),
+              pw.Text(data['poznamky'].toString(), style: pw.TextStyle(font: fontRegular, fontSize: 11, color: PdfColors.grey800)),
+              pw.SizedBox(height: 20),
+            ],
+
             if (provedenePrace.isNotEmpty) ...[
-              pw.NewPage(), 
-              pw.Text(
-                'Záznam o opravě / Provedené práce',
-                style: pw.TextStyle(font: fontBold, fontSize: 18, color: PdfColors.blue800),
-              ),
+              pw.NewPage(),
+              pw.Text('Záznam o opravě a dodané díly', style: pw.TextStyle(font: fontBold, fontSize: 18, color: PdfColors.blue800)),
               pw.SizedBox(height: 15),
               ...provedenePrace.map((prace) {
                 final pocetFotek = (prace['fotografie_urls'] as List?)?.length ?? 0;
-                final dily = prace['pouzite_dily'];
+                final dily = prace['pouzite_dily'] as List<dynamic>? ?? [];
+                
                 return pw.Container(
                   margin: const pw.EdgeInsets.only(bottom: 15),
                   padding: const pw.EdgeInsets.all(10),
-                  decoration: pw.BoxDecoration(
-                    color: PdfColors.grey50,
-                    border: pw.Border.all(color: PdfColors.grey300),
-                    borderRadius: const pw.BorderRadius.all(pw.Radius.circular(8)),
-                  ),
+                  decoration: pw.BoxDecoration(color: PdfColors.grey50, border: pw.Border.all(color: PdfColors.grey300), borderRadius: pw.BorderRadius.circular(8)),
                   child: pw.Column(
                     crossAxisAlignment: pw.CrossAxisAlignment.start,
                     children: [
                       pw.Row(
                         mainAxisAlignment: pw.MainAxisAlignment.spaceBetween,
                         children: [
-                          pw.Text(prace['nazev'].toString(), style: pw.TextStyle(font: fontBold, fontSize: 14)),
+                          pw.Text('${prace['nazev']} (Cena úkonu: ${prace['cena_s_dph']} Kč s DPH)', style: pw.TextStyle(font: fontBold, fontSize: 14)),
                           pw.Text(_formatDate(prace['cas']), style: pw.TextStyle(font: fontRegular, fontSize: 10, color: PdfColors.grey600)),
                         ],
                       ),
+                      if (prace['delka_prace'] != null && prace['delka_prace'].toString().isNotEmpty)
+                        pw.Text('Délka práce: ${prace['delka_prace']}', style: pw.TextStyle(font: fontRegular, fontSize: 11, color: PdfColors.grey700)),
                       if (prace['popis'] != null && prace['popis'].toString().isNotEmpty) ...[
                         pw.SizedBox(height: 5),
-                        pw.Text(prace['popis'].toString(), style: pw.TextStyle(font: fontRegular, fontSize: 12)),
+                        pw.Text(prace['popis'].toString(), style: pw.TextStyle(font: fontRegular, fontSize: 11)),
                       ],
-                      if (dily != null) ...[
-                        pw.SizedBox(height: 3),
-                        if (dily is List && dily.isNotEmpty)
-                          pw.Text('Použité díly: ${dily.join(', ')}', style: pw.TextStyle(font: fontRegular, fontSize: 12))
-                        else if (dily is String && dily.isNotEmpty)
-                          pw.Text('Použité díly: $dily', style: pw.TextStyle(font: fontRegular, fontSize: 12)),
-                      ],
-                      if (prace['delka_prace'] != null && prace['delka_prace'].toString().isNotEmpty) ...[
-                        pw.SizedBox(height: 3),
-                        pw.Text('Délka práce: ${prace['delka_prace']}', style: pw.TextStyle(font: fontRegular, fontSize: 12)),
+                      if (dily.isNotEmpty) ...[
+                        pw.SizedBox(height: 8),
+                        pw.Text('Použité díly:', style: pw.TextStyle(font: fontBold, fontSize: 11)),
+                        ...dily.map((dil) => pw.Padding(
+                          padding: const pw.EdgeInsets.only(top: 2, left: 10),
+                          child: pw.Text('• ${dil['nazev']} (${dil['cislo']}) - ${dil['pocet']} ks - ${dil['cena_s_dph']} Kč s DPH', style: pw.TextStyle(font: fontRegular, fontSize: 10))
+                        )).toList(),
                       ],
                       if (pocetFotek > 0) ...[
                         pw.SizedBox(height: 5),
@@ -3202,24 +3186,35 @@ class _HistoryPageState extends State<HistoryPage> {
             ],
 
             pw.Spacer(),
-            pw.Center(
-              child: pw.Text(
-                'Vygenerováno aplikací Visto',
-                style: pw.TextStyle(
-                  font: fontRegular,
-                  fontSize: 10,
-                  color: PdfColors.grey500,
-                ),
-              ),
-            ),
+
+            if (podpisImage != null) ...[
+              pw.SizedBox(height: 30),
+              pw.Divider(color: PdfColors.grey300),
+              pw.SizedBox(height: 10),
+              pw.Row(
+                mainAxisAlignment: pw.MainAxisAlignment.spaceBetween,
+                crossAxisAlignment: pw.CrossAxisAlignment.end,
+                children: [
+                  pw.Column(
+                    crossAxisAlignment: pw.CrossAxisAlignment.start,
+                    children: [
+                      pw.Text('Podpis zákazníka:', style: pw.TextStyle(font: fontBold, fontSize: 12)),
+                      pw.SizedBox(height: 5),
+                      pw.Image(podpisImage, width: 150, height: 60),
+                      pw.Container(width: 150, height: 1, color: PdfColors.black),
+                    ]
+                  ),
+                  pw.Text('Vygenerováno aplikací Visto', style: pw.TextStyle(font: fontRegular, fontSize: 10, color: PdfColors.grey500)),
+                ]
+              )
+            ] else ...[
+               pw.Center(child: pw.Text('Vygenerováno aplikací Visto', style: pw.TextStyle(font: fontRegular, fontSize: 10, color: PdfColors.grey500))),
+            ]
           ];
         },
       ),
     );
 
-    await Printing.sharePdf(
-      bytes: await pdf.save(),
-      filename: 'Protokol_${data['cislo_zakazky']}.pdf',
-    );
+    await Printing.sharePdf(bytes: await pdf.save(), filename: 'Protokol_${data['cislo_zakazky']}.pdf');
   }
 }
