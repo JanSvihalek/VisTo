@@ -492,7 +492,7 @@ class _MainWizardPageState extends State<MainWizardPage> {
         const SizedBox(height: 40),
         _buildInput(
           'Číslo zakázky',
-          Icons.tag,
+          Icons.onetwothree,
           _zakazkaController,
           isDark,
           caps: true,
@@ -500,7 +500,7 @@ class _MainWizardPageState extends State<MainWizardPage> {
         const SizedBox(height: 20),
         _buildInput(
           'SPZ vozidla',
-          Icons.directions_car,
+          Icons.abc,
           _spzController,
           isDark,
           caps: true,
@@ -509,7 +509,7 @@ class _MainWizardPageState extends State<MainWizardPage> {
         // NOVÉ: Pole pro VIN kód
         _buildInput(
           'VIN kód',
-          Icons.fingerprint, // Ikonka otisku prstu (unikátní identifikátor)
+          Icons.abc, // Ikonka otisku prstu (unikátní identifikátor)
           _vinController,
           isDark,
           caps: true, // VIN obsahuje velká písmena
