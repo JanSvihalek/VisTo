@@ -380,9 +380,17 @@ class MainWizardPage extends StatefulWidget {
 class _MainWizardPageState extends State<MainWizardPage> {
   final PageController _pageController = PageController();
   int _currentPage = 0;
-  final int _totalPages = 3;
+  final int _totalPages = 4; // Zvýšeno na 4 (přidán zákazník)
   bool _isUploading = false;
 
+  // --- Zákazník ---
+  final _jmenoController = TextEditingController();
+  final _icoController = TextEditingController();
+  final _adresaController = TextEditingController();
+  final _telefonController = TextEditingController();
+  final _emailZController = TextEditingController();
+
+  // --- Vozidlo ---
   final _zakazkaController = TextEditingController();
   final _spzController = TextEditingController();
   final _vinController = TextEditingController();
@@ -414,7 +422,8 @@ class _MainWizardPageState extends State<MainWizardPage> {
   void _moveNext() {
     FocusScope.of(context).unfocus();
 
-    if (_currentPage == 0) {
+    // Validace Kroku 2 (Vozidlo)
+    if (_currentPage == 1) {
       if (_zakazkaController.text.trim().isEmpty ||
           _spzController.text.trim().isEmpty) {
         ScaffoldMessenger.of(context).showSnackBar(
@@ -508,6 +517,14 @@ class _MainWizardPageState extends State<MainWizardPage> {
       'cislo_zakazky': zakazkaId,
       'spz': _spzController.text.trim(),
       'vin': _vinController.text.trim(),
+      // NOVÉ: Zákazník
+      'zakaznik': {
+        'jmeno': _jmenoController.text.trim(),
+        'ico': _icoController.text.trim(),
+        'adresa': _adresaController.text.trim(),
+        'telefon': _telefonController.text.trim(),
+        'email': _emailZController.text.trim(),
+      },
       'stav_vozidla': {
         'tachometr': _tachometrController.text.trim(),
         'nadrz': _stavNadrze,
@@ -528,6 +545,12 @@ class _MainWizardPageState extends State<MainWizardPage> {
   }
 
   void _resetForm() {
+    _jmenoController.clear();
+    _icoController.clear();
+    _adresaController.clear();
+    _telefonController.clear();
+    _emailZController.clear();
+
     _zakazkaController.clear();
     _spzController.clear();
     _vinController.clear();
@@ -652,7 +675,8 @@ class _MainWizardPageState extends State<MainWizardPage> {
                 onPageChanged: (idx) => setState(() => _currentPage = idx),
                 physics: const NeverScrollableScrollPhysics(),
                 children: [
-                  _buildInfoStep(isDark),
+                  _buildZakaznikStep(isDark), // Nový krok 1
+                  _buildVozidloStep(isDark),  // Bývalý InfoStep
                   _buildPhotoStep(isDark),
                   _buildCheckStep(isDark),
                 ],
@@ -688,13 +712,65 @@ class _MainWizardPageState extends State<MainWizardPage> {
     );
   }
 
-  Widget _buildInfoStep(bool isDark) => SingleChildScrollView(
+  // --- NOVÉ: 1. Krok (Zákazník) ---
+  Widget _buildZakaznikStep(bool isDark) => SingleChildScrollView(
         padding: const EdgeInsets.all(30),
         child: Column(
           crossAxisAlignment: CrossAxisAlignment.start,
           children: [
             const Text(
-              'Základní údaje',
+              'Údaje o zákazníkovi',
+              style: TextStyle(fontSize: 32, fontWeight: FontWeight.bold),
+            ),
+            const SizedBox(height: 40),
+            _buildInput(
+              'Jméno a příjmení / Název firmy',
+              Icons.person,
+              _jmenoController,
+              isDark,
+            ),
+            const SizedBox(height: 20),
+            _buildInput(
+              'IČO (volitelné)',
+              Icons.business,
+              _icoController,
+              isDark,
+              numbersOnly: true,
+            ),
+            const SizedBox(height: 20),
+            _buildInput(
+              'Adresa',
+              Icons.location_on,
+              _adresaController,
+              isDark,
+            ),
+            const SizedBox(height: 20),
+            _buildInput(
+              'Telefonní číslo',
+              Icons.phone,
+              _telefonController,
+              isDark,
+              numbersOnly: true,
+            ),
+            const SizedBox(height: 20),
+            _buildInput(
+              'E-mail',
+              Icons.email,
+              _emailZController,
+              isDark,
+            ),
+          ],
+        ),
+      );
+
+  // --- UPRAVENO: 2. Krok (Vozidlo) ---
+  Widget _buildVozidloStep(bool isDark) => SingleChildScrollView(
+        padding: const EdgeInsets.all(30),
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            const Text(
+              'Údaje o vozidle',
               style: TextStyle(fontSize: 32, fontWeight: FontWeight.bold),
             ),
             const SizedBox(height: 40),
@@ -1550,7 +1626,11 @@ class _ServiceProgressPageState extends State<ServiceProgressPage> {
                         Navigator.push(
                           context,
                           MaterialPageRoute(
-                            builder: (context) => ActiveJobScreen(documentId: docId, zakazkaId: data['cislo_zakazky'].toString(), spz: data['spz'].toString()),
+                            builder: (context) => ActiveJobScreen(
+                              documentId: docId, 
+                              zakazkaId: data['cislo_zakazky'].toString(), 
+                              spz: data['spz'].toString()
+                            ),
                           ),
                         );
                       },
@@ -1690,7 +1770,6 @@ class ActiveJobScreen extends StatelessWidget {
                                   Text(prace['popis'], style: const TextStyle(fontSize: 14)),
                                 ],
                                 
-                                // Vykreslení dílů s ohledem na staré (Text) i nové (List) záznamy
                                 if (dily != null) ...[
                                   const SizedBox(height: 5),
                                   if (dily is List && dily.isNotEmpty)
@@ -1776,7 +1855,6 @@ class _AddWorkSheetState extends State<_AddWorkSheet> {
   final _popisController = TextEditingController();
   final _delkaController = TextEditingController();
   
-  // NOVÉ: Dynamický seznam ovladačů textu pro použité díly
   final List<TextEditingController> _dilyControllers = [];
   
   final List<XFile> _workImages = [];
@@ -1819,7 +1897,6 @@ class _AddWorkSheetState extends State<_AddWorkSheet> {
         uploadedUrls.add(await ref.getDownloadURL());
       }
 
-      // NOVÉ: Posbírání všech vyplněných dílů do pole textů
       List<String> pouziteDily = _dilyControllers
           .map((c) => c.text.trim())
           .where((text) => text.isNotEmpty)
@@ -1829,7 +1906,7 @@ class _AddWorkSheetState extends State<_AddWorkSheet> {
         'provedene_prace': FieldValue.arrayUnion([{
           'nazev': _nazevController.text.trim(),
           'popis': _popisController.text.trim(),
-          'pouzite_dily': pouziteDily, // Zapsáno jako Array
+          'pouzite_dily': pouziteDily, 
           'delka_prace': _delkaController.text.trim(),
           'cas': Timestamp.now(),
           'fotografie_urls': uploadedUrls,
@@ -1871,7 +1948,6 @@ class _AddWorkSheetState extends State<_AddWorkSheet> {
             ),
             const SizedBox(height: 15),
 
-            // --- NOVÉ: Dynamické pole pro díly ---
             Column(
               crossAxisAlignment: CrossAxisAlignment.start,
               children: [
@@ -2020,7 +2096,7 @@ class _AddWorkSheetState extends State<_AddWorkSheet> {
 }
 
 // ==============================================================================
-// STRÁNKA HISTORIE ZAKÁZEK
+// STRÁNKA HISTORIE ZAKÁZEK (DETAIL KE ČTENÍ A TISK PDF)
 // ==============================================================================
 
 class HistoryPage extends StatefulWidget {
@@ -2061,6 +2137,14 @@ class _HistoryPageState extends State<HistoryPage> {
               const SizedBox(height: 15),
               Container(
                 decoration: BoxDecoration(
+                  boxShadow: [
+                    if (!isDark)
+                      BoxShadow(
+                        color: Colors.black.withOpacity(0.05),
+                        blurRadius: 10,
+                        offset: const Offset(0, 4),
+                      ),
+                  ],
                   borderRadius: BorderRadius.circular(15),
                 ),
                 child: TextField(
@@ -2195,6 +2279,7 @@ class _HistoryPageState extends State<HistoryPage> {
     bool isDark,
   ) {
     final stav = data['stav_vozidla'] as Map<String, dynamic>? ?? {};
+    final zakaznik = data['zakaznik'] as Map<String, dynamic>? ?? {}; // NOVÉ
     final rawUrls = data['fotografie_urls'];
     final Map<String, dynamic> imageUrlsByCategoryRaw = {};
 
@@ -2264,7 +2349,7 @@ class _HistoryPageState extends State<HistoryPage> {
                     size: 28,
                   ),
                   onPressed: () =>
-                      _exportToPdf(context, data, stav, imageUrlsByCategoryRaw),
+                      _exportToPdf(context, data, stav, zakaznik, imageUrlsByCategoryRaw),
                   tooltip: 'Stáhnout PDF protokol',
                 ),
               ],
@@ -2296,6 +2381,39 @@ class _HistoryPageState extends State<HistoryPage> {
             ),
 
             const Divider(height: 40),
+
+            // --- NOVÉ: Zákazník ---
+            if (zakaznik.isNotEmpty && (zakaznik['jmeno']?.toString().isNotEmpty == true || zakaznik['ico']?.toString().isNotEmpty == true)) ...[
+              const Text(
+                'Zákazník:',
+                style: TextStyle(fontWeight: FontWeight.bold, fontSize: 16),
+              ),
+              const SizedBox(height: 15),
+              if (zakaznik['jmeno']?.toString().isNotEmpty == true)
+                _buildDetailRow('Jméno / Firma:', zakaznik['jmeno'], Icons.person, Colors.blueGrey),
+              if (zakaznik['ico']?.toString().isNotEmpty == true)
+                _buildDetailRow('IČO:', zakaznik['ico'], Icons.business, Colors.blueGrey),
+              if (zakaznik['adresa']?.toString().isNotEmpty == true)
+                _buildDetailRow('Adresa:', zakaznik['adresa'], Icons.location_on, Colors.blueGrey),
+              if (zakaznik['telefon']?.toString().isNotEmpty == true)
+                _buildDetailRow('Telefon:', zakaznik['telefon'], Icons.phone, Colors.blueGrey),
+              if (zakaznik['email']?.toString().isNotEmpty == true)
+                Container(
+                  padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
+                  decoration: BoxDecoration(
+                    color: Colors.blue.withOpacity(0.1),
+                    borderRadius: BorderRadius.circular(10)
+                  ),
+                  child: Row(
+                    children: [
+                      const Icon(Icons.email, color: Colors.blue, size: 20),
+                      const SizedBox(width: 10),
+                      Expanded(child: SelectableText(zakaznik['email'], style: const TextStyle(fontWeight: FontWeight.bold, color: Colors.blue))),
+                    ],
+                  ),
+                ),
+              const Divider(height: 40),
+            ],
 
             const Text(
               'Stav vozidla:',
@@ -2522,12 +2640,13 @@ class _HistoryPageState extends State<HistoryPage> {
     BuildContext context,
     Map<String, dynamic> data,
     Map<String, dynamic> stav,
+    Map<String, dynamic> zakaznik,
     Map<String, dynamic> imageUrlsByCategory,
   ) async {
     ScaffoldMessenger.of(context).showSnackBar(
       const SnackBar(
-        content: Text('Generuji PDF protokol...'),
-        duration: Duration(seconds: 1),
+        content: Text('Generuji PDF protokol (po vygenerování vyberte E-mail k odeslání)...'),
+        duration: Duration(seconds: 2),
       ),
     );
 
@@ -2575,6 +2694,37 @@ class _HistoryPageState extends State<HistoryPage> {
               ),
             ),
             pw.SizedBox(height: 20),
+
+            // --- ZÁKAZNÍK (PDF) ---
+            if (zakaznik.isNotEmpty && (zakaznik['jmeno']?.toString().isNotEmpty == true || zakaznik['ico']?.toString().isNotEmpty == true)) ...[
+              pw.Container(
+                padding: const pw.EdgeInsets.all(15),
+                decoration: pw.BoxDecoration(
+                  color: PdfColors.blue50,
+                  borderRadius: const pw.BorderRadius.all(
+                    pw.Radius.circular(10),
+                  ),
+                ),
+                child: pw.Column(
+                  crossAxisAlignment: pw.CrossAxisAlignment.start,
+                  children: [
+                    pw.Text('Údaje o zákazníkovi', style: pw.TextStyle(font: fontBold, fontSize: 14, color: PdfColors.blue800)),
+                    pw.SizedBox(height: 10),
+                    if (zakaznik['jmeno']?.toString().isNotEmpty == true)
+                      pw.Row(mainAxisAlignment: pw.MainAxisAlignment.spaceBetween, children: [pw.Text('Jméno / Firma:', style: pw.TextStyle(font: fontRegular, fontSize: 12)), pw.Text(zakaznik['jmeno'].toString(), style: pw.TextStyle(font: fontBold, fontSize: 12))]),
+                    if (zakaznik['ico']?.toString().isNotEmpty == true)
+                      pw.Row(mainAxisAlignment: pw.MainAxisAlignment.spaceBetween, children: [pw.Text('IČO:', style: pw.TextStyle(font: fontRegular, fontSize: 12)), pw.Text(zakaznik['ico'].toString(), style: pw.TextStyle(font: fontBold, fontSize: 12))]),
+                    if (zakaznik['adresa']?.toString().isNotEmpty == true)
+                      pw.Row(mainAxisAlignment: pw.MainAxisAlignment.spaceBetween, children: [pw.Text('Adresa:', style: pw.TextStyle(font: fontRegular, fontSize: 12)), pw.Text(zakaznik['adresa'].toString(), style: pw.TextStyle(font: fontBold, fontSize: 12))]),
+                    if (zakaznik['telefon']?.toString().isNotEmpty == true)
+                      pw.Row(mainAxisAlignment: pw.MainAxisAlignment.spaceBetween, children: [pw.Text('Telefon:', style: pw.TextStyle(font: fontRegular, fontSize: 12)), pw.Text(zakaznik['telefon'].toString(), style: pw.TextStyle(font: fontBold, fontSize: 12))]),
+                    if (zakaznik['email']?.toString().isNotEmpty == true)
+                      pw.Row(mainAxisAlignment: pw.MainAxisAlignment.spaceBetween, children: [pw.Text('E-mail:', style: pw.TextStyle(font: fontRegular, fontSize: 12)), pw.Text(zakaznik['email'].toString(), style: pw.TextStyle(font: fontBold, fontSize: 12))]),
+                  ],
+                ),
+              ),
+              pw.SizedBox(height: 20),
+            ],
 
             pw.Container(
               padding: const pw.EdgeInsets.all(15),
@@ -2858,8 +3008,7 @@ class _HistoryPageState extends State<HistoryPage> {
             pw.SizedBox(height: 20),
 
             if (provedenePrace.isNotEmpty) ...[
-              pw.Divider(thickness: 2),
-              pw.SizedBox(height: 20),
+              pw.NewPage(), 
               pw.Text(
                 'Záznam o opravě / Provedené práce',
                 style: pw.TextStyle(font: fontBold, fontSize: 18, color: PdfColors.blue800),
