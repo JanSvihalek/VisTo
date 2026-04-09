@@ -80,7 +80,6 @@ class VistoApp extends StatelessWidget {
             fontFamily: 'Roboto',
           ),
           themeMode: currentMode,
-          // Přihlašovací brána
           home: StreamBuilder<User?>(
             stream: FirebaseAuth.instance.authStateChanges(),
             builder: (context, snapshot) {
@@ -285,7 +284,11 @@ class MainScreen extends StatefulWidget {
 class _MainScreenState extends State<MainScreen> {
   int _currentIndex = 0;
 
-  final List<Widget> _pages = [const MainWizardPage(), const HistoryPage()];
+  final List<Widget> _pages = [
+    const MainWizardPage(),
+    const ServiceProgressPage(),
+    const HistoryPage()
+  ];
 
   @override
   Widget build(BuildContext context) {
@@ -349,6 +352,11 @@ class _MainScreenState extends State<MainScreen> {
             label: 'Příjem',
           ),
           NavigationDestination(
+            icon: Icon(Icons.build_circle_outlined),
+            selectedIcon: Icon(Icons.build_circle),
+            label: 'Průběh servisu',
+          ),
+          NavigationDestination(
             icon: Icon(Icons.history_rounded),
             selectedIcon: Icon(Icons.history_rounded),
             label: 'Historie',
@@ -392,9 +400,8 @@ class _MainWizardPageState extends State<MainWizardPage> {
     'Karosérie',
   ];
 
-  // --- NOVÉ PROMĚNNÉ PRO KROK 3 ---
   final _tachometrController = TextEditingController();
-  double _stavNadrze = 50.0; // Výchozí hodnota slideru 50%
+  double _stavNadrze = 50.0;
 
   final _stkMesicController = TextEditingController();
   final _stkRokController = TextEditingController();
@@ -502,9 +509,10 @@ class _MainWizardPageState extends State<MainWizardPage> {
       'spz': _spzController.text.trim(),
       'vin': _vinController.text.trim(),
       'stav_vozidla': {
-        'tachometr': _tachometrController.text.trim(), // NOVÉ
-        'nadrz': _stavNadrze, // NOVÉ
-        'poskozeni': _vybranePoskozeni.isEmpty ? ['Neuvedeno'] : _vybranePoskozeni,
+        'tachometr': _tachometrController.text.trim(),
+        'nadrz': _stavNadrze,
+        'poskozeni':
+            _vybranePoskozeni.isEmpty ? ['Neuvedeno'] : _vybranePoskozeni,
         'stk_mesic': _stkMesicController.text.trim(),
         'stk_rok': _stkRokController.text.trim(),
         'pneu_lp': _pneuLPController.text.trim(),
@@ -514,6 +522,7 @@ class _MainWizardPageState extends State<MainWizardPage> {
       },
       'poznamky': _poznamkyController.text.trim(),
       'fotografie_urls': imageUrlsByCategory,
+      'provedene_prace': [],
       'cas_prijeti': FieldValue.serverTimestamp(),
     });
   }
@@ -532,7 +541,6 @@ class _MainWizardPageState extends State<MainWizardPage> {
     _pneuLZController.clear();
     _pneuPZController.clear();
 
-    // Vyčištění tachometru a nádrže
     _tachometrController.clear();
     _stavNadrze = 50.0;
 
@@ -867,7 +875,6 @@ class _MainWizardPageState extends State<MainWizardPage> {
             ),
             const SizedBox(height: 30),
 
-            // --- NOVÉ: Tachometr a Palivo ---
             _buildInput(
               'Stav tachometru (km)',
               Icons.speed,
@@ -887,7 +894,8 @@ class _MainWizardPageState extends State<MainWizardPage> {
                 ),
                 const SizedBox(height: 5),
                 Container(
-                  padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 5),
+                  padding:
+                      const EdgeInsets.symmetric(horizontal: 10, vertical: 5),
                   decoration: BoxDecoration(
                     color: isDark ? const Color(0xFF1E1E1E) : Colors.white,
                     borderRadius: BorderRadius.circular(15),
@@ -913,11 +921,10 @@ class _MainWizardPageState extends State<MainWizardPage> {
                           value: _stavNadrze,
                           min: 0,
                           max: 100,
-                          divisions: 4, // 0, 25, 50, 75, 100
+                          divisions: 4,
                           label: '${_stavNadrze.toInt()} %',
                           activeColor: Colors.blue,
-                          onChanged: (val) =>
-                              setState(() => _stavNadrze = val),
+                          onChanged: (val) => setState(() => _stavNadrze = val),
                         ),
                       ),
                     ],
@@ -934,7 +941,8 @@ class _MainWizardPageState extends State<MainWizardPage> {
               children: [
                 const Text(
                   'Zjištěné poškození (lze vybrat více)',
-                  style: TextStyle(fontWeight: FontWeight.bold, color: Colors.grey),
+                  style: TextStyle(
+                      fontWeight: FontWeight.bold, color: Colors.grey),
                 ),
                 const SizedBox(height: 8),
                 Container(
@@ -1023,7 +1031,8 @@ class _MainWizardPageState extends State<MainWizardPage> {
               children: [
                 const Text(
                   'Platnost STK',
-                  style: TextStyle(fontWeight: FontWeight.bold, color: Colors.grey),
+                  style: TextStyle(
+                      fontWeight: FontWeight.bold, color: Colors.grey),
                 ),
                 const SizedBox(height: 8),
                 Row(
@@ -1058,7 +1067,8 @@ class _MainWizardPageState extends State<MainWizardPage> {
               children: [
                 const Text(
                   'Hloubka dezénu pneu (v mm)',
-                  style: TextStyle(fontWeight: FontWeight.bold, color: Colors.grey),
+                  style: TextStyle(
+                      fontWeight: FontWeight.bold, color: Colors.grey),
                 ),
                 const SizedBox(height: 8),
                 Row(
@@ -1117,7 +1127,8 @@ class _MainWizardPageState extends State<MainWizardPage> {
               children: [
                 const Text(
                   'Dodatečné poznámky',
-                  style: TextStyle(fontWeight: FontWeight.bold, color: Colors.grey),
+                  style: TextStyle(
+                      fontWeight: FontWeight.bold, color: Colors.grey),
                 ),
                 const SizedBox(height: 8),
                 Container(
@@ -1147,7 +1158,8 @@ class _MainWizardPageState extends State<MainWizardPage> {
                       enabledBorder: OutlineInputBorder(
                         borderRadius: BorderRadius.circular(15),
                         borderSide: BorderSide(
-                            color: isDark ? Colors.grey[800]! : Colors.grey[300]!,
+                            color:
+                                isDark ? Colors.grey[800]! : Colors.grey[300]!,
                             width: 1),
                       ),
                       focusedBorder: OutlineInputBorder(
@@ -1158,7 +1170,8 @@ class _MainWizardPageState extends State<MainWizardPage> {
                       border: OutlineInputBorder(
                         borderRadius: BorderRadius.circular(15),
                         borderSide: BorderSide(
-                            color: isDark ? Colors.grey[800]! : Colors.grey[300]!,
+                            color:
+                                isDark ? Colors.grey[800]! : Colors.grey[300]!,
                             width: 1),
                       ),
                     ),
@@ -1356,6 +1369,657 @@ class _MainWizardPageState extends State<MainWizardPage> {
 }
 
 // ==============================================================================
+// STRÁNKA "PRŮBĚH SERVISU"
+// ==============================================================================
+
+class ServiceProgressPage extends StatefulWidget {
+  const ServiceProgressPage({super.key});
+
+  @override
+  State<ServiceProgressPage> createState() => _ServiceProgressPageState();
+}
+
+class _ServiceProgressPageState extends State<ServiceProgressPage> {
+  String _searchQuery = '';
+
+  String _formatDate(dynamic timestamp) {
+    if (timestamp == null) return "Zpracovává se...";
+    DateTime dt = (timestamp as Timestamp).toDate();
+    return DateFormat('dd.MM.yyyy HH:mm').format(dt);
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final isDark = Theme.of(context).brightness == Brightness.dark;
+    final user = FirebaseAuth.instance.currentUser;
+
+    if (user == null) return const Center(child: Text("Nejste přihlášeni."));
+
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        Padding(
+          padding: const EdgeInsets.fromLTRB(30, 30, 30, 10),
+          child: Column(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              const Text(
+                'Průběh servisu',
+                style: TextStyle(fontSize: 32, fontWeight: FontWeight.bold),
+              ),
+              const SizedBox(height: 10),
+              const Text(
+                'Vyberte zakázku a zaznamenejte provedenou práci nebo přidejte fotodokumentaci.',
+                style: TextStyle(color: Colors.grey),
+              ),
+              const SizedBox(height: 15),
+              Container(
+                decoration: BoxDecoration(
+                  boxShadow: [
+                    if (!isDark)
+                      BoxShadow(
+                        color: Colors.black.withOpacity(0.05),
+                        blurRadius: 10,
+                        offset: const Offset(0, 4),
+                      ),
+                  ],
+                  borderRadius: BorderRadius.circular(15),
+                ),
+                child: TextField(
+                  onChanged: (value) {
+                    setState(() {
+                      _searchQuery = value.toLowerCase();
+                    });
+                  },
+                  decoration: InputDecoration(
+                    hintText: 'Hledat auto (SPZ, VIN, Číslo)...',
+                    prefixIcon: const Icon(Icons.search, color: Colors.blue),
+                    filled: true,
+                    fillColor: isDark ? const Color(0xFF1E1E1E) : Colors.white,
+                    enabledBorder: OutlineInputBorder(
+                      borderRadius: BorderRadius.circular(15),
+                      borderSide: BorderSide(
+                          color: isDark ? Colors.grey[800]! : Colors.grey[300]!,
+                          width: 1),
+                    ),
+                    focusedBorder: OutlineInputBorder(
+                      borderRadius: BorderRadius.circular(15),
+                      borderSide:
+                          const BorderSide(color: Colors.blue, width: 2),
+                    ),
+                    border: OutlineInputBorder(
+                      borderRadius: BorderRadius.circular(15),
+                      borderSide: BorderSide(
+                          color: isDark ? Colors.grey[800]! : Colors.grey[300]!,
+                          width: 1),
+                    ),
+                    contentPadding: const EdgeInsets.symmetric(vertical: 15),
+                  ),
+                ),
+              ),
+            ],
+          ),
+        ),
+        Expanded(
+          child: StreamBuilder<QuerySnapshot>(
+            stream: FirebaseFirestore.instance
+                .collection('zakazky')
+                .where('servis_id', isEqualTo: user.uid)
+                .orderBy('cas_prijeti', descending: true)
+                .snapshots(),
+            builder: (context, snapshot) {
+              if (snapshot.hasError)
+                return Center(child: Text("Chyba databáze: ${snapshot.error}"));
+              if (!snapshot.hasData)
+                return const Center(child: CircularProgressIndicator());
+
+              final allDocs = snapshot.data!.docs;
+              final filteredDocs = allDocs.where((doc) {
+                final data = doc.data() as Map<String, dynamic>;
+                final cislo =
+                    data['cislo_zakazky']?.toString().toLowerCase() ?? '';
+                final spz = data['spz']?.toString().toLowerCase() ?? '';
+                final vin = data['vin']?.toString().toLowerCase() ?? '';
+
+                return cislo.contains(_searchQuery) ||
+                    spz.contains(_searchQuery) ||
+                    vin.contains(_searchQuery);
+              }).toList();
+
+              if (filteredDocs.isEmpty) {
+                return Center(
+                  child: Column(
+                    mainAxisAlignment: MainAxisAlignment.center,
+                    children: [
+                      Icon(
+                        Icons.build_circle_outlined,
+                        size: 80,
+                        color: Colors.grey.withOpacity(0.5),
+                      ),
+                      const SizedBox(height: 16),
+                      Text(
+                        _searchQuery.isEmpty
+                            ? 'Žádné aktivní zakázky'
+                            : 'Nic nenalezeno',
+                        style: TextStyle(
+                          fontSize: 18,
+                          color: isDark ? Colors.grey[400] : Colors.grey[600],
+                        ),
+                      ),
+                    ],
+                  ),
+                );
+              }
+
+              return ListView.builder(
+                padding: const EdgeInsets.all(20),
+                itemCount: filteredDocs.length,
+                itemBuilder: (context, index) {
+                  final data =
+                      filteredDocs[index].data() as Map<String, dynamic>;
+                  final docId = filteredDocs[index].id;
+                  
+                  return Card(
+                    color: isDark ? const Color(0xFF1E1E1E) : Colors.white,
+                    shape: RoundedRectangleBorder(
+                      borderRadius: BorderRadius.circular(15),
+                      side: BorderSide(
+                        color: Colors.blue.withOpacity(0.3),
+                      ),
+                    ),
+                    child: ListTile(
+                      contentPadding: const EdgeInsets.all(10),
+                      leading: const CircleAvatar(
+                        backgroundColor: Colors.blue,
+                        foregroundColor: Colors.white,
+                        child: Icon(Icons.build),
+                      ),
+                      title: Text(
+                        'Zakázka ${data['cislo_zakazky']}',
+                        style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 18),
+                      ),
+                      subtitle: Text(
+                        'SPZ: ${data['spz']}' + 
+                        (data['vin'] != null && data['vin'].toString().isNotEmpty ? ' • VIN: ${data['vin']}' : '') +
+                        '\nČas příjmu: ${_formatDate(data['cas_prijeti'])}',
+                        style: const TextStyle(fontSize: 14),
+                      ),
+                      isThreeLine: true,
+                      trailing: const Icon(Icons.arrow_forward_ios, size: 16),
+                      onTap: () {
+                        Navigator.push(
+                          context,
+                          MaterialPageRoute(
+                            builder: (context) => ActiveJobScreen(documentId: docId, zakazkaId: data['cislo_zakazky'].toString(), spz: data['spz'].toString()),
+                          ),
+                        );
+                      },
+                    ),
+                  );
+                },
+              );
+            },
+          ),
+        ),
+      ],
+    );
+  }
+}
+
+// ==============================================================================
+// OBRAZOVKA PRO PŘIDÁVÁNÍ A MAZÁNÍ ÚKONŮ V ZAKÁZCE
+// ==============================================================================
+
+class ActiveJobScreen extends StatelessWidget {
+  final String documentId;
+  final String zakazkaId;
+  final String spz;
+
+  const ActiveJobScreen({super.key, required this.documentId, required this.zakazkaId, required this.spz});
+
+  String _formatDate(dynamic timestamp) {
+    if (timestamp == null) return "Zpracovává se...";
+    DateTime dt = (timestamp as Timestamp).toDate();
+    return DateFormat('dd.MM.yyyy HH:mm').format(dt);
+  }
+
+  void _openAddWorkDialog(BuildContext context) {
+    showModalBottomSheet(
+      context: context,
+      isScrollControlled: true,
+      backgroundColor: Colors.transparent,
+      builder: (context) => _AddWorkSheet(documentId: documentId, zakazkaId: zakazkaId),
+    );
+  }
+
+  Future<void> _deleteWork(BuildContext context, Map<String, dynamic> workItem) async {
+    bool? confirm = await showDialog<bool>(
+      context: context,
+      builder: (context) => AlertDialog(
+        title: const Text('Smazat úkon?'),
+        content: const Text('Opravdu chcete tento záznam o práci odstranit? Tato akce je nevratná.'),
+        actions: [
+          TextButton(onPressed: () => Navigator.pop(context, false), child: const Text('ZRUŠIT')),
+          TextButton(onPressed: () => Navigator.pop(context, true), child: const Text('SMAZAT', style: TextStyle(color: Colors.red))),
+        ],
+      ),
+    );
+
+    if (confirm == true) {
+      await FirebaseFirestore.instance.collection('zakazky').doc(documentId).update({
+        'provedene_prace': FieldValue.arrayRemove([workItem])
+      });
+    }
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final isDark = Theme.of(context).brightness == Brightness.dark;
+
+    return Scaffold(
+      backgroundColor: Theme.of(context).colorScheme.surface,
+      appBar: AppBar(
+        backgroundColor: isDark ? const Color(0xFF1A1A1A) : Colors.white,
+        elevation: 1,
+        title: Text('Oprava: $zakazkaId ($spz)', style: const TextStyle(fontWeight: FontWeight.bold)),
+      ),
+      body: StreamBuilder<DocumentSnapshot>(
+        stream: FirebaseFirestore.instance.collection('zakazky').doc(documentId).snapshots(),
+        builder: (context, snapshot) {
+          if (snapshot.hasError) return Center(child: Text("Chyba: ${snapshot.error}"));
+          if (!snapshot.hasData) return const Center(child: CircularProgressIndicator());
+
+          final data = snapshot.data!.data() as Map<String, dynamic>?;
+          if (data == null) return const Center(child: Text("Dokument nenalezen."));
+
+          final provedenePrace = data['provedene_prace'] as List<dynamic>? ?? [];
+
+          return Column(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              const Padding(
+                padding: EdgeInsets.fromLTRB(20, 20, 20, 10),
+                child: Text('Zaznamenané úkony', style: TextStyle(fontSize: 20, fontWeight: FontWeight.bold)),
+              ),
+              Expanded(
+                child: provedenePrace.isEmpty
+                  ? Center(
+                      child: Column(
+                        mainAxisAlignment: MainAxisAlignment.center,
+                        children: [
+                          Icon(Icons.build_circle_outlined, size: 80, color: Colors.grey.withOpacity(0.5)),
+                          const SizedBox(height: 16),
+                          const Text('Zatím nebyly přidány žádné práce.', style: TextStyle(color: Colors.grey)),
+                        ],
+                      ),
+                    )
+                  : ListView.builder(
+                      padding: const EdgeInsets.all(20),
+                      itemCount: provedenePrace.length,
+                      itemBuilder: (context, index) {
+                        final prace = provedenePrace[provedenePrace.length - 1 - index];
+                        final fotky = prace['fotografie_urls'] as List<dynamic>? ?? [];
+                        final dily = prace['pouzite_dily'];
+                        
+                        return Card(
+                          margin: const EdgeInsets.only(bottom: 15),
+                          color: isDark ? const Color(0xFF1E1E1E) : Colors.white,
+                          shape: RoundedRectangleBorder(
+                            borderRadius: BorderRadius.circular(15), 
+                            side: BorderSide(color: Colors.blue.withOpacity(0.3))
+                          ),
+                          child: Padding(
+                            padding: const EdgeInsets.all(20),
+                            child: Column(
+                              crossAxisAlignment: CrossAxisAlignment.start,
+                              children: [
+                                Row(
+                                  mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                                  children: [
+                                    Expanded(child: Text(prace['nazev'], style: const TextStyle(fontSize: 18, fontWeight: FontWeight.bold))),
+                                    IconButton(
+                                      icon: const Icon(Icons.delete_outline, color: Colors.red, size: 20),
+                                      onPressed: () => _deleteWork(context, prace),
+                                    ),
+                                  ],
+                                ),
+                                Text(_formatDate(prace['cas']), style: const TextStyle(fontSize: 12, color: Colors.grey)),
+                                
+                                if (prace['popis'] != null && prace['popis'].toString().isNotEmpty) ...[
+                                  const SizedBox(height: 10),
+                                  Text(prace['popis'], style: const TextStyle(fontSize: 14)),
+                                ],
+                                
+                                // Vykreslení dílů s ohledem na staré (Text) i nové (List) záznamy
+                                if (dily != null) ...[
+                                  const SizedBox(height: 5),
+                                  if (dily is List && dily.isNotEmpty)
+                                    Text('Použité díly: ${dily.join(', ')}', style: const TextStyle(fontSize: 14))
+                                  else if (dily is String && dily.isNotEmpty)
+                                    Text('Použité díly: $dily', style: const TextStyle(fontSize: 14)),
+                                ],
+                                
+                                if (prace['delka_prace'] != null && prace['delka_prace'].toString().isNotEmpty) ...[
+                                  const SizedBox(height: 5),
+                                  Text('Délka práce: ${prace['delka_prace']}', style: const TextStyle(fontSize: 14)),
+                                ],
+                                if (fotky.isNotEmpty) ...[
+                                  const SizedBox(height: 15),
+                                  SizedBox(
+                                    height: 100,
+                                    child: ListView.separated(
+                                      scrollDirection: Axis.horizontal,
+                                      itemCount: fotky.length,
+                                      separatorBuilder: (c, i) => const SizedBox(width: 10),
+                                      itemBuilder: (c, i) => GestureDetector(
+                                        onTap: () => html.window.open(fotky[i], "_blank"),
+                                        child: ClipRRect(
+                                          borderRadius: BorderRadius.circular(8), 
+                                          child: Image.network(fotky[i], width: 140, fit: BoxFit.cover)
+                                        ),
+                                      )
+                                    )
+                                  )
+                                ]
+                              ],
+                            ),
+                          )
+                        );
+                      },
+                    ),
+              ),
+              Container(
+                width: double.infinity,
+                padding: const EdgeInsets.all(20),
+                decoration: BoxDecoration(
+                  color: isDark ? const Color(0xFF1A1A1A) : Colors.white,
+                  boxShadow: [BoxShadow(color: Colors.black.withOpacity(0.05), blurRadius: 10, offset: const Offset(0, -5))],
+                ),
+                child: SafeArea(
+                  child: ElevatedButton.icon(
+                    onPressed: () => _openAddWorkDialog(context),
+                    icon: const Icon(Icons.add),
+                    label: const Text('ZAZNAMENAT ÚKON', style: TextStyle(fontWeight: FontWeight.bold, fontSize: 16)),
+                    style: ElevatedButton.styleFrom(
+                      backgroundColor: Colors.blue, 
+                      foregroundColor: Colors.white, 
+                      padding: const EdgeInsets.symmetric(vertical: 20),
+                      shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(15))
+                    ),
+                  ),
+                ),
+              )
+            ],
+          );
+        },
+      ),
+    );
+  }
+}
+
+// ==============================================================================
+// SUB-WIDGET PRO VKLÁDÁNÍ NOVÉ PRÁCE (BOTTOM SHEET S DYNAMICKÝMI DÍLY)
+// ==============================================================================
+
+class _AddWorkSheet extends StatefulWidget {
+  final String documentId;
+  final String zakazkaId;
+
+  const _AddWorkSheet({required this.documentId, required this.zakazkaId});
+
+  @override
+  State<_AddWorkSheet> createState() => _AddWorkSheetState();
+}
+
+class _AddWorkSheetState extends State<_AddWorkSheet> {
+  final _nazevController = TextEditingController();
+  final _popisController = TextEditingController();
+  final _delkaController = TextEditingController();
+  
+  // NOVÉ: Dynamický seznam ovladačů textu pro použité díly
+  final List<TextEditingController> _dilyControllers = [];
+  
+  final List<XFile> _workImages = [];
+  final ImagePicker _picker = ImagePicker();
+  bool _isSaving = false;
+
+  @override
+  void dispose() {
+    _nazevController.dispose();
+    _popisController.dispose();
+    _delkaController.dispose();
+    for (var controller in _dilyControllers) {
+      controller.dispose();
+    }
+    super.dispose();
+  }
+
+  Future<void> _takePhoto() async {
+    final photo = await _picker.pickImage(source: ImageSource.camera, imageQuality: 60, maxWidth: 1280, maxHeight: 1280);
+    if (photo != null) setState(() => _workImages.add(photo));
+  }
+
+  Future<void> _pickFromGallery() async {
+    final photos = await _picker.pickMultiImage(imageQuality: 60, maxWidth: 1280, maxHeight: 1280);
+    if (photos.isNotEmpty) setState(() => _workImages.addAll(photos));
+  }
+
+  Future<void> _saveWork() async {
+    if (_nazevController.text.trim().isEmpty) return;
+    setState(() => _isSaving = true);
+    
+    try {
+      final user = FirebaseAuth.instance.currentUser;
+      List<String> uploadedUrls = [];
+
+      for (int i = 0; i < _workImages.length; i++) {
+        String fileName = 'prace_${DateTime.now().millisecondsSinceEpoch}_$i.jpg';
+        Reference ref = FirebaseStorage.instance.ref().child('servisy/${user!.uid}/zakazky/${widget.zakazkaId}/$fileName');
+        await ref.putData(await _workImages[i].readAsBytes());
+        uploadedUrls.add(await ref.getDownloadURL());
+      }
+
+      // NOVÉ: Posbírání všech vyplněných dílů do pole textů
+      List<String> pouziteDily = _dilyControllers
+          .map((c) => c.text.trim())
+          .where((text) => text.isNotEmpty)
+          .toList();
+
+      await FirebaseFirestore.instance.collection('zakazky').doc(widget.documentId).update({
+        'provedene_prace': FieldValue.arrayUnion([{
+          'nazev': _nazevController.text.trim(),
+          'popis': _popisController.text.trim(),
+          'pouzite_dily': pouziteDily, // Zapsáno jako Array
+          'delka_prace': _delkaController.text.trim(),
+          'cas': Timestamp.now(),
+          'fotografie_urls': uploadedUrls,
+        }])
+      });
+
+      if (mounted) Navigator.pop(context); 
+    } catch (e) {
+      ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text('Chyba: $e')));
+      setState(() => _isSaving = false);
+    }
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final isDark = Theme.of(context).brightness == Brightness.dark;
+    return Container(
+      decoration: BoxDecoration(
+        color: isDark ? const Color(0xFF1A1A1A) : Colors.white, 
+        borderRadius: const BorderRadius.vertical(top: Radius.circular(25))
+      ),
+      padding: EdgeInsets.only(bottom: MediaQuery.of(context).viewInsets.bottom, top: 30, left: 30, right: 30),
+      child: SingleChildScrollView(
+        child: Column(
+          mainAxisSize: MainAxisSize.min,
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            const Text('Zaznamenat práci', style: TextStyle(fontSize: 24, fontWeight: FontWeight.bold)),
+            const SizedBox(height: 20),
+            
+            TextField(
+              controller: _nazevController,
+              decoration: InputDecoration(
+                labelText: 'Název úkonu (např. Výměna oleje) *', 
+                filled: true, 
+                fillColor: isDark ? const Color(0xFF2C2C2C) : Colors.grey[100], 
+                border: OutlineInputBorder(borderRadius: BorderRadius.circular(15), borderSide: BorderSide.none)
+              ),
+            ),
+            const SizedBox(height: 15),
+
+            // --- NOVÉ: Dynamické pole pro díly ---
+            Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                const Text('Použité díly:', style: TextStyle(fontWeight: FontWeight.bold, color: Colors.grey)),
+                const SizedBox(height: 10),
+                ...List.generate(_dilyControllers.length, (index) {
+                  return Padding(
+                    padding: const EdgeInsets.only(bottom: 10),
+                    child: Row(
+                      children: [
+                        Expanded(
+                          child: TextField(
+                            controller: _dilyControllers[index],
+                            decoration: InputDecoration(
+                              hintText: 'Název dílu (např. Olejový filtr)',
+                              filled: true,
+                              fillColor: isDark ? const Color(0xFF2C2C2C) : Colors.grey[100],
+                              border: OutlineInputBorder(borderRadius: BorderRadius.circular(15), borderSide: BorderSide.none),
+                              contentPadding: const EdgeInsets.symmetric(horizontal: 15, vertical: 15),
+                            ),
+                          ),
+                        ),
+                        IconButton(
+                          icon: const Icon(Icons.remove_circle_outline, color: Colors.red),
+                          onPressed: () {
+                            setState(() {
+                              _dilyControllers[index].dispose();
+                              _dilyControllers.removeAt(index);
+                            });
+                          },
+                        )
+                      ],
+                    ),
+                  );
+                }),
+                TextButton.icon(
+                  onPressed: () {
+                    setState(() {
+                      _dilyControllers.add(TextEditingController());
+                    });
+                  },
+                  icon: const Icon(Icons.add),
+                  label: const Text('Přidat díl'),
+                ),
+              ],
+            ),
+            const SizedBox(height: 15),
+
+            TextField(
+              controller: _delkaController,
+              decoration: InputDecoration(
+                labelText: 'Délka práce (např. 2h 30m)', 
+                filled: true, 
+                fillColor: isDark ? const Color(0xFF2C2C2C) : Colors.grey[100], 
+                border: OutlineInputBorder(borderRadius: BorderRadius.circular(15), borderSide: BorderSide.none)
+              ),
+            ),
+            const SizedBox(height: 15),
+            
+            TextField(
+              controller: _popisController,
+              maxLines: 2,
+              decoration: InputDecoration(
+                labelText: 'Popis práce / poznámka', 
+                filled: true, 
+                fillColor: isDark ? const Color(0xFF2C2C2C) : Colors.grey[100], 
+                border: OutlineInputBorder(borderRadius: BorderRadius.circular(15), borderSide: BorderSide.none)
+              ),
+            ),
+            const SizedBox(height: 20),
+            
+            const Text('Fotografie k úkonu:', style: TextStyle(fontWeight: FontWeight.bold)),
+            const SizedBox(height: 10),
+            SizedBox(
+              height: 80,
+              child: Row(
+                children: [
+                  GestureDetector(
+                    onTap: _takePhoto,
+                    child: Container(
+                      width: 80, 
+                      decoration: BoxDecoration(color: Colors.blue.withOpacity(0.1), borderRadius: BorderRadius.circular(10), border: Border.all(color: Colors.blue)), 
+                      child: const Icon(Icons.add_a_photo, color: Colors.blue)
+                    ),
+                  ),
+                  const SizedBox(width: 10),
+                  GestureDetector(
+                    onTap: _pickFromGallery,
+                    child: Container(
+                      width: 80, 
+                      decoration: BoxDecoration(color: Colors.blueGrey.withOpacity(0.1), borderRadius: BorderRadius.circular(10), border: Border.all(color: Colors.blueGrey)), 
+                      child: const Icon(Icons.photo_library, color: Colors.blueGrey)
+                    ),
+                  ),
+                  const SizedBox(width: 10),
+                  Expanded(
+                    child: ListView.builder(
+                      scrollDirection: Axis.horizontal,
+                      itemCount: _workImages.length,
+                      itemBuilder: (c, i) => Stack(
+                        children: [
+                          Container(
+                            margin: const EdgeInsets.only(right: 10), 
+                            child: ClipRRect(
+                              borderRadius: BorderRadius.circular(10), 
+                              child: kIsWeb ? Image.network(_workImages[i].path, width: 80, height: 80, fit: BoxFit.cover) : Image.file(File(_workImages[i].path), width: 80, height: 80, fit: BoxFit.cover)
+                            )
+                          ),
+                          Positioned(
+                            top: 2, right: 12, 
+                            child: GestureDetector(
+                              onTap: () => setState(() => _workImages.removeAt(i)), 
+                              child: const CircleAvatar(radius: 10, backgroundColor: Colors.white, child: Icon(Icons.close, size: 12, color: Colors.red))
+                            )
+                          )
+                        ]
+                      )
+                    )
+                  )
+                ],
+              ),
+            ),
+            const SizedBox(height: 30),
+            
+            SizedBox(
+              width: double.infinity,
+              child: ElevatedButton(
+                onPressed: _isSaving ? null : _saveWork,
+                style: ElevatedButton.styleFrom(
+                  backgroundColor: Colors.blue, 
+                  foregroundColor: Colors.white, 
+                  padding: const EdgeInsets.symmetric(vertical: 18), 
+                  shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(15))
+                ),
+                child: _isSaving 
+                  ? const SizedBox(height: 20, width: 20, child: CircularProgressIndicator(color: Colors.white, strokeWidth: 2)) 
+                  : const Text('ULOŽIT ÚKON', style: TextStyle(fontWeight: FontWeight.bold)),
+              ),
+            ),
+            const SizedBox(height: 30),
+          ],
+        ),
+      ),
+    );
+  }
+}
+
+// ==============================================================================
 // STRÁNKA HISTORIE ZAKÁZEK
 // ==============================================================================
 
@@ -1397,14 +2061,6 @@ class _HistoryPageState extends State<HistoryPage> {
               const SizedBox(height: 15),
               Container(
                 decoration: BoxDecoration(
-                  boxShadow: [
-                    if (!isDark)
-                      BoxShadow(
-                        color: Colors.black.withOpacity(0.05),
-                        blurRadius: 10,
-                        offset: const Offset(0, 4),
-                      ),
-                  ],
                   borderRadius: BorderRadius.circular(15),
                 ),
                 child: TextField(
@@ -1426,8 +2082,7 @@ class _HistoryPageState extends State<HistoryPage> {
                     ),
                     focusedBorder: OutlineInputBorder(
                       borderRadius: BorderRadius.circular(15),
-                      borderSide:
-                          const BorderSide(color: Colors.blue, width: 2),
+                      borderSide: const BorderSide(color: Colors.blue, width: 2),
                     ),
                     border: OutlineInputBorder(
                       borderRadius: BorderRadius.circular(15),
@@ -1516,7 +2171,9 @@ class _HistoryPageState extends State<HistoryPage> {
                         style: const TextStyle(fontWeight: FontWeight.bold),
                       ),
                       subtitle: Text(
-                        'SPZ: ${data['spz']}\n${_formatDate(data['cas_prijeti'])}',
+                        'SPZ: ${data['spz']}' + 
+                        (data['vin'] != null && data['vin'].toString().isNotEmpty ? ' • VIN: ${data['vin']}' : '') +
+                        '\nČas příjmu: ${_formatDate(data['cas_prijeti'])}',
                       ),
                       isThreeLine: true,
                       onTap: () => _showDetail(context, data, isDark),
@@ -1646,7 +2303,6 @@ class _HistoryPageState extends State<HistoryPage> {
             ),
             const SizedBox(height: 15),
 
-            // --- NOVÉ: Tachometr a Palivo v detailu ---
             _buildDetailRow(
               'Tachometr:',
               '${stav['tachometr']?.toString().isNotEmpty == true ? stav['tachometr'] : 'Neuvedeno'} km',
@@ -1843,7 +2499,8 @@ class _HistoryPageState extends State<HistoryPage> {
     return Padding(
       padding: const EdgeInsets.only(bottom: 12),
       child: Row(
-        crossAxisAlignment: CrossAxisAlignment.start,
+        crossAxisAlignment:
+            CrossAxisAlignment.start, 
         children: [
           Icon(icon, color: iconColor, size: 20),
           const SizedBox(width: 10),
@@ -1874,6 +2531,8 @@ class _HistoryPageState extends State<HistoryPage> {
       ),
     );
 
+    final provedenePrace = data['provedene_prace'] as List<dynamic>? ?? [];
+
     final pdf = pw.Document();
     final fontRegular = await PdfGoogleFonts.robotoRegular();
     final fontBold = await PdfGoogleFonts.robotoBold();
@@ -1886,362 +2545,384 @@ class _HistoryPageState extends State<HistoryPage> {
     }
 
     pdf.addPage(
-      pw.Page(
+      pw.MultiPage(
         pageFormat: PdfPageFormat.a4,
         margin: const pw.EdgeInsets.all(40),
         build: (pw.Context context) {
-          return pw.Column(
-            crossAxisAlignment: pw.CrossAxisAlignment.start,
-            children: [
-              pw.Header(
-                level: 0,
-                child: pw.Row(
-                  mainAxisAlignment: pw.MainAxisAlignment.spaceBetween,
-                  children: [
-                    pw.Text(
-                      'VISTO',
-                      style: pw.TextStyle(
-                        font: fontBold,
-                        fontSize: 28,
-                        color: PdfColors.blue800,
-                      ),
+          return [
+            pw.Header(
+              level: 0,
+              child: pw.Row(
+                mainAxisAlignment: pw.MainAxisAlignment.spaceBetween,
+                children: [
+                  pw.Text(
+                    'VISTO',
+                    style: pw.TextStyle(
+                      font: fontBold,
+                      fontSize: 28,
+                      color: PdfColors.blue800,
                     ),
-                    pw.Text(
-                      'Protokol o příjmu',
-                      style: pw.TextStyle(
-                        font: fontRegular,
-                        fontSize: 20,
-                        color: PdfColors.grey600,
-                      ),
+                  ),
+                  pw.Text(
+                    'Protokol o příjmu a opravě',
+                    style: pw.TextStyle(
+                      font: fontRegular,
+                      fontSize: 20,
+                      color: PdfColors.grey600,
                     ),
-                  ],
+                  ),
+                ],
+              ),
+            ),
+            pw.SizedBox(height: 20),
+
+            pw.Container(
+              padding: const pw.EdgeInsets.all(15),
+              decoration: pw.BoxDecoration(
+                color: PdfColors.grey100,
+                borderRadius: const pw.BorderRadius.all(
+                  pw.Radius.circular(10),
                 ),
               ),
-              pw.SizedBox(height: 20),
-
-              pw.Container(
-                padding: const pw.EdgeInsets.all(15),
-                decoration: pw.BoxDecoration(
-                  color: PdfColors.grey100,
-                  borderRadius: const pw.BorderRadius.all(
-                    pw.Radius.circular(10),
-                  ),
-                ),
-                child: pw.Column(
-                  crossAxisAlignment: pw.CrossAxisAlignment.start,
-                  children: [
-                    pw.Row(
-                      mainAxisAlignment: pw.MainAxisAlignment.spaceBetween,
-                      children: [
-                        pw.Text(
-                          'Zakázka č.:',
-                          style: pw.TextStyle(font: fontRegular, fontSize: 14),
-                        ),
-                        pw.Text(
-                          data['cislo_zakazky'].toString(),
-                          style: pw.TextStyle(font: fontBold, fontSize: 16),
-                        ),
-                      ],
-                    ),
-                    pw.Divider(color: PdfColors.grey300),
-                    pw.Row(
-                      mainAxisAlignment: pw.MainAxisAlignment.spaceBetween,
-                      children: [
-                        pw.Text(
-                          'SPZ vozidla:',
-                          style: pw.TextStyle(font: fontRegular, fontSize: 14),
-                        ),
-                        pw.Text(
-                          data['spz'].toString(),
-                          style: pw.TextStyle(font: fontBold, fontSize: 16),
-                        ),
-                      ],
-                    ),
-                    if (data['vin'] != null &&
-                        data['vin'].toString().isNotEmpty) ...[
-                      pw.Divider(color: PdfColors.grey300),
-                      pw.Row(
-                        mainAxisAlignment: pw.MainAxisAlignment.spaceBetween,
-                        children: [
-                          pw.Text(
-                            'VIN kód:',
-                            style: pw.TextStyle(
-                              font: fontRegular,
-                              fontSize: 14,
-                            ),
-                          ),
-                          pw.Text(
-                            data['vin'].toString(),
-                            style: pw.TextStyle(font: fontBold, fontSize: 16),
-                          ),
-                        ],
+              child: pw.Column(
+                crossAxisAlignment: pw.CrossAxisAlignment.start,
+                children: [
+                  pw.Row(
+                    mainAxisAlignment: pw.MainAxisAlignment.spaceBetween,
+                    children: [
+                      pw.Text(
+                        'Zakázka č.:',
+                        style: pw.TextStyle(font: fontRegular, fontSize: 14),
+                      ),
+                      pw.Text(
+                        data['cislo_zakazky'].toString(),
+                        style: pw.TextStyle(font: fontBold, fontSize: 16),
                       ),
                     ],
+                  ),
+                  pw.Divider(color: PdfColors.grey300),
+                  pw.Row(
+                    mainAxisAlignment: pw.MainAxisAlignment.spaceBetween,
+                    children: [
+                      pw.Text(
+                        'SPZ vozidla:',
+                        style: pw.TextStyle(font: fontRegular, fontSize: 14),
+                      ),
+                      pw.Text(
+                        data['spz'].toString(),
+                        style: pw.TextStyle(font: fontBold, fontSize: 16),
+                      ),
+                    ],
+                  ),
+                  if (data['vin'] != null &&
+                      data['vin'].toString().isNotEmpty) ...[
                     pw.Divider(color: PdfColors.grey300),
                     pw.Row(
                       mainAxisAlignment: pw.MainAxisAlignment.spaceBetween,
                       children: [
                         pw.Text(
-                          'Datum a čas příjmu:',
-                          style: pw.TextStyle(font: fontRegular, fontSize: 14),
+                          'VIN kód:',
+                          style: pw.TextStyle(
+                            font: fontRegular,
+                            fontSize: 14,
+                          ),
                         ),
                         pw.Text(
-                          _formatDate(data['cas_prijeti']),
-                          style: pw.TextStyle(font: fontBold, fontSize: 14),
+                          data['vin'].toString(),
+                          style: pw.TextStyle(font: fontBold, fontSize: 16),
                         ),
                       ],
                     ),
                   ],
-                ),
-              ),
-              pw.SizedBox(height: 30),
-
-              pw.Text(
-                'Stav vozidla',
-                style: pw.TextStyle(font: fontBold, fontSize: 18),
-              ),
-              pw.SizedBox(height: 15),
-
-              // --- NOVÉ: Tachometr a Palivo v PDF ---
-              pw.Row(
-                mainAxisAlignment: pw.MainAxisAlignment.spaceBetween,
-                children: [
-                  pw.Text(
-                    'Stav tachometru:',
-                    style: pw.TextStyle(font: fontRegular),
+                  pw.Divider(color: PdfColors.grey300),
+                  pw.Row(
+                    mainAxisAlignment: pw.MainAxisAlignment.spaceBetween,
+                    children: [
+                      pw.Text(
+                        'Datum a čas příjmu:',
+                        style: pw.TextStyle(font: fontRegular, fontSize: 14),
+                      ),
+                      pw.Text(
+                        _formatDate(data['cas_prijeti']),
+                        style: pw.TextStyle(font: fontBold, fontSize: 14),
+                      ),
+                    ],
                   ),
-                  pw.Text(
-                    '${stav['tachometr']?.toString().isNotEmpty == true ? stav['tachometr'] : 'Neuvedeno'} km',
+                ],
+              ),
+            ),
+            pw.SizedBox(height: 30),
+
+            pw.Text(
+              'Stav vozidla při příjmu',
+              style: pw.TextStyle(font: fontBold, fontSize: 18),
+            ),
+            pw.SizedBox(height: 15),
+
+            pw.Row(
+              mainAxisAlignment: pw.MainAxisAlignment.spaceBetween,
+              children: [
+                pw.Text(
+                  'Stav tachometru:',
+                  style: pw.TextStyle(font: fontRegular),
+                ),
+                pw.Text(
+                  '${stav['tachometr']?.toString().isNotEmpty == true ? stav['tachometr'] : 'Neuvedeno'} km',
+                  style: pw.TextStyle(font: fontBold),
+                ),
+              ],
+            ),
+            pw.SizedBox(height: 5),
+            pw.Row(
+              mainAxisAlignment: pw.MainAxisAlignment.spaceBetween,
+              children: [
+                pw.Text(
+                  'Stav paliva v nádrži:',
+                  style: pw.TextStyle(font: fontRegular),
+                ),
+                pw.Text(
+                  stav['nadrz'] != null ? '${stav['nadrz'].toInt()} %' : 'Neuvedeno',
+                  style: pw.TextStyle(font: fontBold),
+                ),
+              ],
+            ),
+            pw.SizedBox(height: 5),
+
+            pw.Row(
+              mainAxisAlignment: pw.MainAxisAlignment.spaceBetween,
+              children: [
+                pw.Text(
+                  'Zjištěné poškození:',
+                  style: pw.TextStyle(font: fontRegular),
+                ),
+                pw.Expanded(
+                  child: pw.Text(
+                    poskozeniPdfText,
                     style: pw.TextStyle(font: fontBold),
-                  ),
-                ],
-              ),
-              pw.SizedBox(height: 5),
-              pw.Row(
-                mainAxisAlignment: pw.MainAxisAlignment.spaceBetween,
-                children: [
-                  pw.Text(
-                    'Stav paliva v nádrži:',
-                    style: pw.TextStyle(font: fontRegular),
-                  ),
-                  pw.Text(
-                    stav['nadrz'] != null ? '${stav['nadrz'].toInt()} %' : 'Neuvedeno',
-                    style: pw.TextStyle(font: fontBold),
-                  ),
-                ],
-              ),
-              pw.SizedBox(height: 5),
-
-              pw.Row(
-                mainAxisAlignment: pw.MainAxisAlignment.spaceBetween,
-                children: [
-                  pw.Text(
-                    'Zjištěné poškození:',
-                    style: pw.TextStyle(font: fontRegular),
-                  ),
-                  pw.Expanded(
-                    child: pw.Text(
-                      poskozeniPdfText,
-                      style: pw.TextStyle(font: fontBold),
-                      textAlign: pw.TextAlign.right,
-                    ),
-                  ),
-                ],
-              ),
-              pw.SizedBox(height: 10),
-              pw.Row(
-                mainAxisAlignment: pw.MainAxisAlignment.spaceBetween,
-                children: [
-                  pw.Text(
-                    'Platnost STK:',
-                    style: pw.TextStyle(font: fontRegular),
-                  ),
-                  pw.Text(
-                    '${stav['stk_mesic'] ?? '-'} / ${stav['stk_rok'] ?? '-'}',
-                    style: pw.TextStyle(font: fontBold),
-                  ),
-                ],
-              ),
-              pw.SizedBox(height: 20),
-
-              pw.Text(
-                'Hloubka dezénu pneu:',
-                style: pw.TextStyle(font: fontBold, fontSize: 14),
-              ),
-              pw.SizedBox(height: 10),
-              pw.Container(
-                padding: const pw.EdgeInsets.all(10),
-                decoration: pw.BoxDecoration(
-                  border: pw.Border.all(color: PdfColors.grey300),
-                  borderRadius: const pw.BorderRadius.all(
-                    pw.Radius.circular(8),
-                  ),
-                ),
-                child: pw.Row(
-                  mainAxisAlignment: pw.MainAxisAlignment.spaceAround,
-                  children: [
-                    pw.Column(
-                      children: [
-                        pw.Text(
-                          'Levá Přední',
-                          style: pw.TextStyle(
-                            font: fontRegular,
-                            color: PdfColors.grey600,
-                            fontSize: 10,
-                          ),
-                        ),
-                        pw.Text(
-                          '${stav['pneu_lp'] ?? '-'} mm',
-                          style: pw.TextStyle(font: fontBold),
-                        ),
-                      ],
-                    ),
-                    pw.Column(
-                      children: [
-                        pw.Text(
-                          'Pravá Přední',
-                          style: pw.TextStyle(
-                            font: fontRegular,
-                            color: PdfColors.grey600,
-                            fontSize: 10,
-                          ),
-                        ),
-                        pw.Text(
-                          '${stav['pneu_pp'] ?? '-'} mm',
-                          style: pw.TextStyle(font: fontBold),
-                        ),
-                      ],
-                    ),
-                    pw.Column(
-                      children: [
-                        pw.Text(
-                          'Levá Zadní',
-                          style: pw.TextStyle(
-                            font: fontRegular,
-                            color: PdfColors.grey600,
-                            fontSize: 10,
-                          ),
-                        ),
-                        pw.Text(
-                          '${stav['pneu_lz'] ?? '-'} mm',
-                          style: pw.TextStyle(font: fontBold),
-                        ),
-                      ],
-                    ),
-                    pw.Column(
-                      children: [
-                        pw.Text(
-                          'Pravá Zadní',
-                          style: pw.TextStyle(
-                            font: fontRegular,
-                            color: PdfColors.grey600,
-                            fontSize: 10,
-                          ),
-                        ),
-                        pw.Text(
-                          '${stav['pneu_pz'] ?? '-'} mm',
-                          style: pw.TextStyle(font: fontBold),
-                        ),
-                      ],
-                    ),
-                  ],
-                ),
-              ),
-
-              pw.SizedBox(height: 30),
-              pw.Text(
-                'Fotodokumentace',
-                style: pw.TextStyle(font: fontBold, fontSize: 18),
-              ),
-              pw.SizedBox(height: 15),
-
-              if (imageUrlsByCategory.values.every(
-                (list) => (list as List).isEmpty,
-              ))
-                pw.Text(
-                  'Žádné fotografie nebyly pořízeny.',
-                  style: pw.TextStyle(font: fontRegular, fontSize: 12),
-                )
-              else
-                ...imageUrlsByCategory.entries
-                    .where((e) => (e.value as List<dynamic>).isNotEmpty)
-                    .map((entry) {
-                      final key = entry.key;
-                      final urls = entry.value as List<dynamic>;
-                      final category = photoCategories[key];
-                      final label = category != null
-                          ? category['label'] as String
-                          : 'Ostatní / Starší fotky';
-
-                      return pw.Padding(
-                        padding: const pw.EdgeInsets.only(bottom: 5),
-                        child: pw.Row(
-                          children: [
-                            pw.Container(
-                              width: 4,
-                              height: 4,
-                              decoration: const pw.BoxDecoration(
-                                shape: pw.BoxShape.circle,
-                                color: PdfColors.blue,
-                              ),
-                            ),
-                            pw.SizedBox(width: 8),
-                            pw.Text(
-                              '$label (${urls.length}x)',
-                              style: pw.TextStyle(
-                                font: fontRegular,
-                                fontSize: 12,
-                              ),
-                            ),
-                          ],
-                        ),
-                      );
-                    })
-                    .toList(),
-
-              pw.SizedBox(height: 20),
-              pw.Divider(),
-              pw.SizedBox(height: 20),
-
-              if (data['poznamky'] != null &&
-                  data['poznamky'].toString().isNotEmpty) ...[
-                pw.Text(
-                  'Poznámky k příjmu:',
-                  style: pw.TextStyle(font: fontBold, fontSize: 16),
-                ),
-                pw.SizedBox(height: 10),
-                pw.Text(
-                  data['poznamky'].toString(),
-                  style: pw.TextStyle(
-                    font: fontRegular,
-                    fontSize: 12,
-                    color: PdfColors.grey800,
-                  ),
-                ),
-              ] else ...[
-                pw.Text(
-                  'Bez dodatečných poznámek.',
-                  style: pw.TextStyle(
-                    font: fontRegular,
-                    fontSize: 12,
-                    color: PdfColors.grey600,
+                    textAlign: pw.TextAlign.right,
                   ),
                 ),
               ],
+            ),
+            pw.SizedBox(height: 10),
+            pw.Row(
+              mainAxisAlignment: pw.MainAxisAlignment.spaceBetween,
+              children: [
+                pw.Text(
+                  'Platnost STK:',
+                  style: pw.TextStyle(font: fontRegular),
+                ),
+                pw.Text(
+                  '${stav['stk_mesic'] ?? '-'} / ${stav['stk_rok'] ?? '-'}',
+                  style: pw.TextStyle(font: fontBold),
+                ),
+              ],
+            ),
+            pw.SizedBox(height: 20),
 
-              pw.Spacer(),
-              pw.Center(
-                child: pw.Text(
-                  'Vygenerováno aplikací Visto',
-                  style: pw.TextStyle(
-                    font: fontRegular,
-                    fontSize: 10,
-                    color: PdfColors.grey500,
-                  ),
+            pw.Text(
+              'Hloubka dezénu pneu:',
+              style: pw.TextStyle(font: fontBold, fontSize: 14),
+            ),
+            pw.SizedBox(height: 10),
+            pw.Container(
+              padding: const pw.EdgeInsets.all(10),
+              decoration: pw.BoxDecoration(
+                border: pw.Border.all(color: PdfColors.grey300),
+                borderRadius: const pw.BorderRadius.all(
+                  pw.Radius.circular(8),
                 ),
               ),
+              child: pw.Row(
+                mainAxisAlignment: pw.MainAxisAlignment.spaceAround,
+                children: [
+                  pw.Column(
+                    children: [
+                      pw.Text(
+                        'Levá Přední',
+                        style: pw.TextStyle(
+                          font: fontRegular,
+                          color: PdfColors.grey600,
+                          fontSize: 10,
+                        ),
+                      ),
+                      pw.Text(
+                        '${stav['pneu_lp'] ?? '-'} mm',
+                        style: pw.TextStyle(font: fontBold),
+                      ),
+                    ],
+                  ),
+                  pw.Column(
+                    children: [
+                      pw.Text(
+                        'Pravá Přední',
+                        style: pw.TextStyle(
+                          font: fontRegular,
+                          color: PdfColors.grey600,
+                          fontSize: 10,
+                        ),
+                      ),
+                      pw.Text(
+                        '${stav['pneu_pp'] ?? '-'} mm',
+                        style: pw.TextStyle(font: fontBold),
+                      ),
+                    ],
+                  ),
+                  pw.Column(
+                    children: [
+                      pw.Text(
+                        'Levá Zadní',
+                        style: pw.TextStyle(
+                          font: fontRegular,
+                          color: PdfColors.grey600,
+                          fontSize: 10,
+                        ),
+                      ),
+                      pw.Text(
+                        '${stav['pneu_lz'] ?? '-'} mm',
+                        style: pw.TextStyle(font: fontBold),
+                      ),
+                    ],
+                  ),
+                  pw.Column(
+                    children: [
+                      pw.Text(
+                        'Pravá Zadní',
+                        style: pw.TextStyle(
+                          font: fontRegular,
+                          color: PdfColors.grey600,
+                          fontSize: 10,
+                        ),
+                      ),
+                      pw.Text(
+                        '${stav['pneu_pz'] ?? '-'} mm',
+                        style: pw.TextStyle(font: fontBold),
+                      ),
+                    ],
+                  ),
+                ],
+              ),
+            ),
+
+            pw.SizedBox(height: 30),
+            pw.Text(
+              'Fotodokumentace příjmu',
+              style: pw.TextStyle(font: fontBold, fontSize: 18),
+            ),
+            pw.SizedBox(height: 15),
+
+            if (imageUrlsByCategory.values.every(
+              (list) => (list as List).isEmpty,
+            ))
+              pw.Text(
+                'Žádné fotografie nebyly pořízeny.',
+                style: pw.TextStyle(font: fontRegular, fontSize: 12),
+              )
+            else
+              ...imageUrlsByCategory.entries
+                  .where((e) => (e.value as List<dynamic>).isNotEmpty)
+                  .map((entry) {
+                    final key = entry.key;
+                    final urls = entry.value as List<dynamic>;
+                    final category = photoCategories[key];
+                    final label = category != null
+                        ? category['label'] as String
+                        : 'Ostatní / Starší fotky';
+
+                    return pw.Padding(
+                      padding: const pw.EdgeInsets.only(bottom: 5),
+                      child: pw.Row(
+                        children: [
+                          pw.Container(
+                            width: 4,
+                            height: 4,
+                            decoration: const pw.BoxDecoration(
+                              shape: pw.BoxShape.circle,
+                              color: PdfColors.blue,
+                            ),
+                          ),
+                          pw.SizedBox(width: 8),
+                          pw.Text(
+                            '$label (${urls.length}x)',
+                            style: pw.TextStyle(
+                              font: fontRegular,
+                              fontSize: 12,
+                            ),
+                          ),
+                        ],
+                      ),
+                    );
+                  })
+                  .toList(),
+
+            pw.SizedBox(height: 20),
+
+            if (provedenePrace.isNotEmpty) ...[
+              pw.Divider(thickness: 2),
+              pw.SizedBox(height: 20),
+              pw.Text(
+                'Záznam o opravě / Provedené práce',
+                style: pw.TextStyle(font: fontBold, fontSize: 18, color: PdfColors.blue800),
+              ),
+              pw.SizedBox(height: 15),
+              ...provedenePrace.map((prace) {
+                final pocetFotek = (prace['fotografie_urls'] as List?)?.length ?? 0;
+                final dily = prace['pouzite_dily'];
+                return pw.Container(
+                  margin: const pw.EdgeInsets.only(bottom: 15),
+                  padding: const pw.EdgeInsets.all(10),
+                  decoration: pw.BoxDecoration(
+                    color: PdfColors.grey50,
+                    border: pw.Border.all(color: PdfColors.grey300),
+                    borderRadius: const pw.BorderRadius.all(pw.Radius.circular(8)),
+                  ),
+                  child: pw.Column(
+                    crossAxisAlignment: pw.CrossAxisAlignment.start,
+                    children: [
+                      pw.Row(
+                        mainAxisAlignment: pw.MainAxisAlignment.spaceBetween,
+                        children: [
+                          pw.Text(prace['nazev'].toString(), style: pw.TextStyle(font: fontBold, fontSize: 14)),
+                          pw.Text(_formatDate(prace['cas']), style: pw.TextStyle(font: fontRegular, fontSize: 10, color: PdfColors.grey600)),
+                        ],
+                      ),
+                      if (prace['popis'] != null && prace['popis'].toString().isNotEmpty) ...[
+                        pw.SizedBox(height: 5),
+                        pw.Text(prace['popis'].toString(), style: pw.TextStyle(font: fontRegular, fontSize: 12)),
+                      ],
+                      if (dily != null) ...[
+                        pw.SizedBox(height: 3),
+                        if (dily is List && dily.isNotEmpty)
+                          pw.Text('Použité díly: ${dily.join(', ')}', style: pw.TextStyle(font: fontRegular, fontSize: 12))
+                        else if (dily is String && dily.isNotEmpty)
+                          pw.Text('Použité díly: $dily', style: pw.TextStyle(font: fontRegular, fontSize: 12)),
+                      ],
+                      if (prace['delka_prace'] != null && prace['delka_prace'].toString().isNotEmpty) ...[
+                        pw.SizedBox(height: 3),
+                        pw.Text('Délka práce: ${prace['delka_prace']}', style: pw.TextStyle(font: fontRegular, fontSize: 12)),
+                      ],
+                      if (pocetFotek > 0) ...[
+                        pw.SizedBox(height: 5),
+                        pw.Text('Pořízená fotodokumentace: $pocetFotek fotek', style: pw.TextStyle(font: fontRegular, fontSize: 10, color: PdfColors.blue)),
+                      ]
+                    ],
+                  ),
+                );
+              }),
             ],
-          );
+
+            pw.Spacer(),
+            pw.Center(
+              child: pw.Text(
+                'Vygenerováno aplikací Visto',
+                style: pw.TextStyle(
+                  font: fontRegular,
+                  fontSize: 10,
+                  color: PdfColors.grey500,
+                ),
+              ),
+            ),
+          ];
         },
       ),
     );
