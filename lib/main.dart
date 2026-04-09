@@ -15,6 +15,7 @@ import 'package:printing/printing.dart'; // Pro sdílení/tisk PDF
 import 'package:firebase_core/firebase_core.dart';
 import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:firebase_storage/firebase_storage.dart';
+import 'package:firebase_auth/firebase_auth.dart'; // Přihlašování
 import 'firebase_options.dart'; // Soubor generovaný FlutterFire CLI
 
 // --- GLOBÁLNÍ KONSTANTY ---
@@ -79,9 +80,194 @@ class VistoApp extends StatelessWidget {
             fontFamily: 'Roboto',
           ),
           themeMode: currentMode,
-          home: const MainScreen(),
+          // Přihlašovací brána
+          home: StreamBuilder<User?>(
+            stream: FirebaseAuth.instance.authStateChanges(),
+            builder: (context, snapshot) {
+              if (snapshot.connectionState == ConnectionState.waiting) {
+                return const Scaffold(
+                    body: Center(child: CircularProgressIndicator()));
+              }
+              if (snapshot.hasData) {
+                return const MainScreen();
+              }
+              return const AuthScreen();
+            },
+          ),
         );
       },
+    );
+  }
+}
+
+// ==============================================================================
+// AUTH SCREEN (LOGIN / REGISTRACE)
+// ==============================================================================
+
+class AuthScreen extends StatefulWidget {
+  const AuthScreen({super.key});
+  @override
+  State<AuthScreen> createState() => _AuthScreenState();
+}
+
+class _AuthScreenState extends State<AuthScreen> {
+  final _emailController = TextEditingController();
+  final _passwordController = TextEditingController();
+  bool _isLogin = true;
+  bool _isLoading = false;
+
+  Future<void> _submit() async {
+    final email = _emailController.text.trim();
+    final password = _passwordController.text.trim();
+    if (email.isEmpty || password.isEmpty) return;
+
+    setState(() => _isLoading = true);
+    try {
+      if (_isLogin) {
+        await FirebaseAuth.instance
+            .signInWithEmailAndPassword(email: email, password: password);
+      } else {
+        await FirebaseAuth.instance
+            .createUserWithEmailAndPassword(email: email, password: password);
+      }
+    } catch (e) {
+      ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(content: Text('Chyba: $e'), backgroundColor: Colors.red));
+    } finally {
+      if (mounted) setState(() => _isLoading = false);
+    }
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final isDark = Theme.of(context).brightness == Brightness.dark;
+    return Scaffold(
+      body: Center(
+        child: SingleChildScrollView(
+          padding: const EdgeInsets.all(30),
+          child: ConstrainedBox(
+            constraints: const BoxConstraints(maxWidth: 400),
+            child: Column(
+              children: [
+                const Icon(Icons.bolt, color: Color(0xFF0061FF), size: 80),
+                const Text('Visto',
+                    style: TextStyle(
+                        fontSize: 42,
+                        fontWeight: FontWeight.w900,
+                        letterSpacing: -1.5)),
+                const SizedBox(height: 40),
+                Container(
+                  decoration: BoxDecoration(
+                    boxShadow: [
+                      if (!isDark)
+                        BoxShadow(
+                            color: Colors.black.withOpacity(0.05),
+                            blurRadius: 10,
+                            offset: const Offset(0, 4)),
+                    ],
+                    borderRadius: BorderRadius.circular(15),
+                  ),
+                  child: TextField(
+                    controller: _emailController,
+                    decoration: InputDecoration(
+                      labelText: 'E-mail servisu',
+                      filled: true,
+                      fillColor:
+                          isDark ? const Color(0xFF1E1E1E) : Colors.white,
+                      enabledBorder: OutlineInputBorder(
+                          borderRadius: BorderRadius.circular(15),
+                          borderSide: BorderSide(
+                              color:
+                                  isDark ? Colors.grey[800]! : Colors.grey[300]!,
+                              width: 1)),
+                      focusedBorder: OutlineInputBorder(
+                          borderRadius: BorderRadius.circular(15),
+                          borderSide:
+                              const BorderSide(color: Colors.blue, width: 2)),
+                      border: OutlineInputBorder(
+                          borderRadius: BorderRadius.circular(15),
+                          borderSide: BorderSide(
+                              color:
+                                  isDark ? Colors.grey[800]! : Colors.grey[300]!,
+                              width: 1)),
+                    ),
+                  ),
+                ),
+                const SizedBox(height: 15),
+                Container(
+                  decoration: BoxDecoration(
+                    boxShadow: [
+                      if (!isDark)
+                        BoxShadow(
+                            color: Colors.black.withOpacity(0.05),
+                            blurRadius: 10,
+                            offset: const Offset(0, 4)),
+                    ],
+                    borderRadius: BorderRadius.circular(15),
+                  ),
+                  child: TextField(
+                    controller: _passwordController,
+                    obscureText: true,
+                    decoration: InputDecoration(
+                      labelText: 'Heslo',
+                      filled: true,
+                      fillColor:
+                          isDark ? const Color(0xFF1E1E1E) : Colors.white,
+                      enabledBorder: OutlineInputBorder(
+                          borderRadius: BorderRadius.circular(15),
+                          borderSide: BorderSide(
+                              color:
+                                  isDark ? Colors.grey[800]! : Colors.grey[300]!,
+                              width: 1)),
+                      focusedBorder: OutlineInputBorder(
+                          borderRadius: BorderRadius.circular(15),
+                          borderSide:
+                              const BorderSide(color: Colors.blue, width: 2)),
+                      border: OutlineInputBorder(
+                          borderRadius: BorderRadius.circular(15),
+                          borderSide: BorderSide(
+                              color:
+                                  isDark ? Colors.grey[800]! : Colors.grey[300]!,
+                              width: 1)),
+                    ),
+                  ),
+                ),
+                const SizedBox(height: 30),
+                SizedBox(
+                  width: double.infinity,
+                  child: ElevatedButton(
+                    onPressed: _isLoading ? null : _submit,
+                    style: ElevatedButton.styleFrom(
+                      backgroundColor: const Color(0xFF0061FF),
+                      foregroundColor: Colors.white,
+                      padding: const EdgeInsets.symmetric(vertical: 18),
+                      shape: RoundedRectangleBorder(
+                          borderRadius: BorderRadius.circular(18)),
+                    ),
+                    child: _isLoading
+                        ? const SizedBox(
+                            height: 20,
+                            width: 20,
+                            child: CircularProgressIndicator(
+                                color: Colors.white, strokeWidth: 2))
+                        : Text(
+                            _isLogin ? 'PŘIHLÁSIT SE' : 'ZAREGISTROVAT SERVIS',
+                            style: const TextStyle(fontWeight: FontWeight.bold)),
+                  ),
+                ),
+                TextButton(
+                  onPressed: () => setState(() => _isLogin = !_isLogin),
+                  child: Text(
+                      _isLogin
+                          ? 'Nový servis? Vytvořit účet'
+                          : 'Už máte účet? Přihlásit se',
+                      style: const TextStyle(color: Colors.grey)),
+                ),
+              ],
+            ),
+          ),
+        ),
+      ),
     );
   }
 }
@@ -108,6 +294,11 @@ class _MainScreenState extends State<MainScreen> {
     return Scaffold(
       backgroundColor: Theme.of(context).colorScheme.surface,
       appBar: AppBar(
+        leading: IconButton(
+          icon: const Icon(Icons.logout, color: Colors.grey),
+          onPressed: () => FirebaseAuth.instance.signOut(),
+          tooltip: 'Odhlásit se',
+        ),
         title: FittedBox(
           fit: BoxFit.scaleDown,
           child: Row(
@@ -192,7 +383,6 @@ class _MainWizardPageState extends State<MainWizardPage> {
   final Map<String, List<XFile>> _categoryImages = {};
   final ImagePicker _picker = ImagePicker();
 
-  // --- NOVÉ: Multi-select pro poškození ---
   final List<String> _vybranePoskozeni = [];
   final List<String> _poskozeniMoznosti = [
     'Žádné',
@@ -201,6 +391,10 @@ class _MainWizardPageState extends State<MainWizardPage> {
     'Disky',
     'Karosérie',
   ];
+
+  // --- NOVÉ PROMĚNNÉ PRO KROK 3 ---
+  final _tachometrController = TextEditingController();
+  double _stavNadrze = 50.0; // Výchozí hodnota slideru 50%
 
   final _stkMesicController = TextEditingController();
   final _stkRokController = TextEditingController();
@@ -272,6 +466,9 @@ class _MainWizardPageState extends State<MainWizardPage> {
   }
 
   Future<void> _uploadToFirebase() async {
+    final user = FirebaseAuth.instance.currentUser;
+    if (user == null) throw Exception('Nejste přihlášeni!');
+
     final Map<String, List<String>> imageUrlsByCategory = {};
     String zakazkaId = _zakazkaController.text.trim().isEmpty
         ? 'ID_${DateTime.now().millisecondsSinceEpoch}'
@@ -288,7 +485,7 @@ class _MainWizardPageState extends State<MainWizardPage> {
         String fileName =
             '${categoryKey}_${DateTime.now().millisecondsSinceEpoch}_$i.jpg';
         Reference ref = FirebaseStorage.instance.ref().child(
-          'zakazky/$zakazkaId/$fileName',
+          'servisy/${user.uid}/zakazky/$zakazkaId/$fileName',
         );
         await ref.putData(await image.readAsBytes());
         String downloadUrl = await ref.getDownloadURL();
@@ -296,15 +493,18 @@ class _MainWizardPageState extends State<MainWizardPage> {
       }
     }
 
-    await FirebaseFirestore.instance.collection('zakazky').doc(zakazkaId).set({
+    await FirebaseFirestore.instance
+        .collection('zakazky')
+        .doc('${user.uid}_$zakazkaId')
+        .set({
+      'servis_id': user.uid,
       'cislo_zakazky': zakazkaId,
       'spz': _spzController.text.trim(),
       'vin': _vinController.text.trim(),
       'stav_vozidla': {
-        // NOVÉ: Ukládáme seznam, pokud je prázdný dáme Neuvedeno
-        'poskozeni': _vybranePoskozeni.isEmpty
-            ? ['Neuvedeno']
-            : _vybranePoskozeni,
+        'tachometr': _tachometrController.text.trim(), // NOVÉ
+        'nadrz': _stavNadrze, // NOVÉ
+        'poskozeni': _vybranePoskozeni.isEmpty ? ['Neuvedeno'] : _vybranePoskozeni,
         'stk_mesic': _stkMesicController.text.trim(),
         'stk_rok': _stkRokController.text.trim(),
         'pneu_lp': _pneuLPController.text.trim(),
@@ -331,6 +531,10 @@ class _MainWizardPageState extends State<MainWizardPage> {
     _pneuPPController.clear();
     _pneuLZController.clear();
     _pneuPZController.clear();
+
+    // Vyčištění tachometru a nádrže
+    _tachometrController.clear();
+    _stavNadrze = 50.0;
 
     setState(() => _currentPage = 0);
     _pageController.jumpToPage(0);
@@ -449,7 +653,6 @@ class _MainWizardPageState extends State<MainWizardPage> {
             _buildBottomPanel(isDark),
           ],
         ),
-
         if (_isUploading)
           Container(
             color: Colors.black54,
@@ -478,455 +681,563 @@ class _MainWizardPageState extends State<MainWizardPage> {
   }
 
   Widget _buildInfoStep(bool isDark) => SingleChildScrollView(
-    padding: const EdgeInsets.all(30),
-    child: Column(
-      crossAxisAlignment: CrossAxisAlignment.start,
-      children: [
-        const Text(
-          'Základní údaje',
-          style: TextStyle(fontSize: 32, fontWeight: FontWeight.bold),
-        ),
-        const SizedBox(height: 40),
-        _buildInput(
-          'Číslo zakázky *',
-          Icons.onetwothree,
-          _zakazkaController,
-          isDark,
-          caps: true,
-        ),
-        const SizedBox(height: 20),
-        _buildInput(
-          'SPZ vozidla *',
-          Icons.abc,
-          _spzController,
-          isDark,
-          caps: true,
-        ),
-        const SizedBox(height: 20),
-        _buildInput('VIN kód', Icons.abc, _vinController, isDark, caps: true),
-      ],
-    ),
-  );
-
-  Widget _buildPhotoStep(bool isDark) => Padding(
-    padding: const EdgeInsets.all(30),
-    child: Column(
-      crossAxisAlignment: CrossAxisAlignment.start,
-      children: [
-        const Text(
-          'Fotodokumentace',
-          style: TextStyle(fontSize: 32, fontWeight: FontWeight.bold),
-        ),
-        const SizedBox(height: 20),
-        const Text(
-          'Vyfoťte sérii fotek, nebo vyberte hromadně z galerie.',
-          style: TextStyle(fontSize: 16, color: Colors.grey),
-        ),
-        const SizedBox(height: 20),
-        Expanded(
-          child: ListView.separated(
-            itemCount: photoCategories.length,
-            separatorBuilder: (context, index) => const SizedBox(height: 15),
-            itemBuilder: (context, index) {
-              final key = photoCategories.keys.elementAt(index);
-              final category = photoCategories[key];
-              final label = category['label'] as String;
-              final icon = category['icon'] as IconData;
-              final takenPhotos = _categoryImages[key] ?? [];
-
-              return Card(
-                color: isDark ? const Color(0xFF1A1A1A) : Colors.white,
-                shape: RoundedRectangleBorder(
-                  borderRadius: BorderRadius.circular(20),
-                  side: BorderSide(
-                    color: takenPhotos.isNotEmpty
-                        ? Colors.green.withOpacity(0.5)
-                        : Colors.grey.withOpacity(0.2),
-                    width: takenPhotos.isNotEmpty ? 2 : 1,
-                  ),
-                ),
-                child: Padding(
-                  padding: const EdgeInsets.all(15),
-                  child: Column(
-                    crossAxisAlignment: CrossAxisAlignment.start,
-                    children: [
-                      Row(
-                        children: [
-                          Icon(icon, color: Colors.blue, size: 30),
-                          const SizedBox(width: 15),
-                          Expanded(
-                            child: Text(
-                              label,
-                              style: const TextStyle(
-                                fontSize: 16,
-                                fontWeight: FontWeight.bold,
-                              ),
-                            ),
-                          ),
-                          IconButton(
-                            onPressed: () => _pickFromGallery(key),
-                            icon: const Icon(
-                              Icons.photo_library_rounded,
-                              color: Colors.blueGrey,
-                            ),
-                            tooltip: 'Přidat z galerie',
-                          ),
-                          IconButton(
-                            onPressed: () => _takePhotoSeries(key),
-                            icon: const Icon(
-                              Icons.add_a_photo_rounded,
-                              color: Colors.blue,
-                            ),
-                            tooltip: 'Sériové focení',
-                          ),
-                        ],
-                      ),
-                      if (takenPhotos.isNotEmpty) ...[
-                        const SizedBox(height: 10),
-                        SizedBox(
-                          height: 80,
-                          child: ListView.builder(
-                            scrollDirection: Axis.horizontal,
-                            itemCount: takenPhotos.length,
-                            itemBuilder: (context, photoIndex) {
-                              final photo = takenPhotos[photoIndex];
-                              return Stack(
-                                children: [
-                                  Container(
-                                    margin: const EdgeInsets.only(right: 10),
-                                    child: ClipRRect(
-                                      borderRadius: BorderRadius.circular(10),
-                                      child: kIsWeb
-                                          ? Image.network(
-                                              photo.path,
-                                              width: 80,
-                                              height: 80,
-                                              fit: BoxFit.cover,
-                                            )
-                                          : Image.file(
-                                              File(photo.path),
-                                              width: 80,
-                                              height: 80,
-                                              fit: BoxFit.cover,
-                                            ),
-                                    ),
-                                  ),
-                                  Positioned(
-                                    top: 4,
-                                    right: 14,
-                                    child: GestureDetector(
-                                      onTap: () => setState(
-                                        () => _categoryImages[key]!.removeAt(
-                                          photoIndex,
-                                        ),
-                                      ),
-                                      child: const CircleAvatar(
-                                        radius: 10,
-                                        backgroundColor: Colors.white,
-                                        child: Icon(
-                                          Icons.close,
-                                          size: 14,
-                                          color: Colors.red,
-                                        ),
-                                      ),
-                                    ),
-                                  ),
-                                ],
-                              );
-                            },
-                          ),
-                        ),
-                      ],
-                    ],
-                  ),
-                ),
-              );
-            },
-          ),
-        ),
-      ],
-    ),
-  );
-
-  Widget _buildCheckStep(bool isDark) => SingleChildScrollView(
-    padding: const EdgeInsets.all(30),
-    child: Column(
-      crossAxisAlignment: CrossAxisAlignment.start,
-      children: [
-        const Text(
-          'Stav vozidla',
-          style: TextStyle(fontSize: 32, fontWeight: FontWeight.bold),
-        ),
-        const SizedBox(height: 30),
-
-        // --- NOVÉ: Poškození (Multi-select přes FilterChips) ---
-        Column(
+        padding: const EdgeInsets.all(30),
+        child: Column(
           crossAxisAlignment: CrossAxisAlignment.start,
           children: [
             const Text(
-              '1. Zjištěné poškození (lze vybrat více)',
-              style: TextStyle(fontWeight: FontWeight.bold, color: Colors.grey),
+              'Základní údaje',
+              style: TextStyle(fontSize: 32, fontWeight: FontWeight.bold),
             ),
-            const SizedBox(height: 8),
-            Container(
-              width: double.infinity,
-              padding: const EdgeInsets.all(15),
-              decoration: BoxDecoration(
-                color: isDark ? const Color(0xFF1E1E1E) : Colors.white,
-                borderRadius: BorderRadius.circular(15),
-              ),
-              child: Row(
-                crossAxisAlignment: CrossAxisAlignment.start,
-                children: [
-                  const Padding(
-                    padding: EdgeInsets.only(top: 4, right: 15),
-                    child: Icon(Icons.car_crash, color: Colors.blue),
-                  ),
-                  Expanded(
-                    child: Wrap(
-                      spacing: 8.0,
-                      runSpacing: 8.0,
-                      children: _poskozeniMoznosti.map((String value) {
-                        final isSelected = _vybranePoskozeni.contains(value);
-                        return FilterChip(
-                          label: Text(value),
-                          selected: isSelected,
-                          onSelected: (bool selected) {
-                            setState(() {
-                              if (value == 'Žádné') {
-                                if (selected) {
-                                  _vybranePoskozeni.clear();
-                                  _vybranePoskozeni.add('Žádné');
-                                } else {
-                                  _vybranePoskozeni.remove('Žádné');
-                                }
-                              } else {
-                                if (selected) {
-                                  _vybranePoskozeni.remove('Žádné');
-                                  _vybranePoskozeni.add(value);
-                                } else {
-                                  _vybranePoskozeni.remove(value);
-                                }
-                              }
-                            });
-                          },
-                          selectedColor: Colors.blue.withOpacity(0.2),
-                          checkmarkColor: Colors.blue,
-                          shape: RoundedRectangleBorder(
-                            borderRadius: BorderRadius.circular(10),
-                            side: BorderSide(
-                              color: isSelected
-                                  ? Colors.blue
-                                  : (isDark
-                                        ? Colors.grey[800]!
-                                        : Colors.grey[300]!),
-                            ),
+            const SizedBox(height: 40),
+            _buildInput(
+              'Číslo zakázky *',
+              Icons.onetwothree,
+              _zakazkaController,
+              isDark,
+              caps: true,
+            ),
+            const SizedBox(height: 20),
+            _buildInput(
+              'SPZ vozidla *',
+              Icons.abc,
+              _spzController,
+              isDark,
+              caps: true,
+            ),
+            const SizedBox(height: 20),
+            _buildInput(
+                'VIN kód', Icons.abc, _vinController, isDark, caps: true),
+          ],
+        ),
+      );
+
+  Widget _buildPhotoStep(bool isDark) => Padding(
+        padding: const EdgeInsets.all(30),
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            const Text(
+              'Fotodokumentace',
+              style: TextStyle(fontSize: 32, fontWeight: FontWeight.bold),
+            ),
+            const SizedBox(height: 20),
+            const Text(
+              'Vyfoťte sérii fotek, nebo vyberte hromadně z galerie.',
+              style: TextStyle(fontSize: 16, color: Colors.grey),
+            ),
+            const SizedBox(height: 20),
+            Expanded(
+              child: ListView.separated(
+                itemCount: photoCategories.length,
+                separatorBuilder: (context, index) =>
+                    const SizedBox(height: 15),
+                itemBuilder: (context, index) {
+                  final key = photoCategories.keys.elementAt(index);
+                  final category = photoCategories[key];
+                  final label = category['label'] as String;
+                  final icon = category['icon'] as IconData;
+                  final takenPhotos = _categoryImages[key] ?? [];
+
+                  return Card(
+                    color: isDark ? const Color(0xFF1A1A1A) : Colors.white,
+                    shape: RoundedRectangleBorder(
+                      borderRadius: BorderRadius.circular(20),
+                      side: BorderSide(
+                        color: takenPhotos.isNotEmpty
+                            ? Colors.green.withOpacity(0.5)
+                            : Colors.grey.withOpacity(0.2),
+                        width: takenPhotos.isNotEmpty ? 2 : 1,
+                      ),
+                    ),
+                    child: Padding(
+                      padding: const EdgeInsets.all(15),
+                      child: Column(
+                        crossAxisAlignment: CrossAxisAlignment.start,
+                        children: [
+                          Row(
+                            children: [
+                              Icon(icon, color: Colors.blue, size: 30),
+                              const SizedBox(width: 15),
+                              Expanded(
+                                child: Text(
+                                  label,
+                                  style: const TextStyle(
+                                    fontSize: 16,
+                                    fontWeight: FontWeight.bold,
+                                  ),
+                                ),
+                              ),
+                              IconButton(
+                                onPressed: () => _pickFromGallery(key),
+                                icon: const Icon(
+                                  Icons.photo_library_rounded,
+                                  color: Colors.blueGrey,
+                                ),
+                                tooltip: 'Přidat z galerie',
+                              ),
+                              IconButton(
+                                onPressed: () => _takePhotoSeries(key),
+                                icon: const Icon(
+                                  Icons.add_a_photo_rounded,
+                                  color: Colors.blue,
+                                ),
+                                tooltip: 'Sériové focení',
+                              ),
+                            ],
                           ),
-                          backgroundColor: isDark
-                              ? const Color(0xFF2C2C2C)
-                              : Colors.grey[50],
-                        );
-                      }).toList(),
+                          if (takenPhotos.isNotEmpty) ...[
+                            const SizedBox(height: 10),
+                            SizedBox(
+                              height: 80,
+                              child: ListView.builder(
+                                scrollDirection: Axis.horizontal,
+                                itemCount: takenPhotos.length,
+                                itemBuilder: (context, photoIndex) {
+                                  final photo = takenPhotos[photoIndex];
+                                  return Stack(
+                                    children: [
+                                      Container(
+                                        margin:
+                                            const EdgeInsets.only(right: 10),
+                                        child: ClipRRect(
+                                          borderRadius:
+                                              BorderRadius.circular(10),
+                                          child: kIsWeb
+                                              ? Image.network(
+                                                  photo.path,
+                                                  width: 80,
+                                                  height: 80,
+                                                  fit: BoxFit.cover,
+                                                )
+                                              : Image.file(
+                                                  File(photo.path),
+                                                  width: 80,
+                                                  height: 80,
+                                                  fit: BoxFit.cover,
+                                                ),
+                                        ),
+                                      ),
+                                      Positioned(
+                                        top: 4,
+                                        right: 14,
+                                        child: GestureDetector(
+                                          onTap: () => setState(
+                                            () => _categoryImages[key]!
+                                                .removeAt(
+                                              photoIndex,
+                                            ),
+                                          ),
+                                          child: const CircleAvatar(
+                                            radius: 10,
+                                            backgroundColor: Colors.white,
+                                            child: Icon(
+                                              Icons.close,
+                                              size: 14,
+                                              color: Colors.red,
+                                            ),
+                                          ),
+                                        ),
+                                      ),
+                                    ],
+                                  );
+                                },
+                              ),
+                            ),
+                          ],
+                        ],
+                      ),
+                    ),
+                  );
+                },
+              ),
+            ),
+          ],
+        ),
+      );
+
+  Widget _buildCheckStep(bool isDark) => SingleChildScrollView(
+        padding: const EdgeInsets.all(30),
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            const Text(
+              'Stav vozidla',
+              style: TextStyle(fontSize: 32, fontWeight: FontWeight.bold),
+            ),
+            const SizedBox(height: 30),
+
+            // --- NOVÉ: Tachometr a Palivo ---
+            _buildInput(
+              'Stav tachometru (km)',
+              Icons.speed,
+              _tachometrController,
+              isDark,
+              numbersOnly: true,
+            ),
+            const SizedBox(height: 25),
+
+            Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Text(
+                  'Stav paliva v nádrži (${_stavNadrze.toInt()} %)',
+                  style: const TextStyle(
+                      fontWeight: FontWeight.bold, color: Colors.grey),
+                ),
+                const SizedBox(height: 5),
+                Container(
+                  padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 5),
+                  decoration: BoxDecoration(
+                    color: isDark ? const Color(0xFF1E1E1E) : Colors.white,
+                    borderRadius: BorderRadius.circular(15),
+                    boxShadow: [
+                      if (!isDark)
+                        BoxShadow(
+                          color: Colors.black.withOpacity(0.05),
+                          blurRadius: 10,
+                          offset: const Offset(0, 4),
+                        ),
+                    ],
+                    border: Border.all(
+                      color: isDark ? Colors.grey[800]! : Colors.grey[300]!,
+                      width: 1,
+                    ),
+                  ),
+                  child: Row(
+                    children: [
+                      Icon(Icons.local_gas_station,
+                          color: _stavNadrze < 20 ? Colors.red : Colors.blue),
+                      Expanded(
+                        child: Slider(
+                          value: _stavNadrze,
+                          min: 0,
+                          max: 100,
+                          divisions: 4, // 0, 25, 50, 75, 100
+                          label: '${_stavNadrze.toInt()} %',
+                          activeColor: Colors.blue,
+                          onChanged: (val) =>
+                              setState(() => _stavNadrze = val),
+                        ),
+                      ),
+                    ],
+                  ),
+                ),
+              ],
+            ),
+            const SizedBox(height: 30),
+            const Divider(),
+            const SizedBox(height: 20),
+
+            Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                const Text(
+                  'Zjištěné poškození (lze vybrat více)',
+                  style: TextStyle(fontWeight: FontWeight.bold, color: Colors.grey),
+                ),
+                const SizedBox(height: 8),
+                Container(
+                  width: double.infinity,
+                  padding: const EdgeInsets.all(15),
+                  decoration: BoxDecoration(
+                    color: isDark ? const Color(0xFF1E1E1E) : Colors.white,
+                    borderRadius: BorderRadius.circular(15),
+                    boxShadow: [
+                      if (!isDark)
+                        BoxShadow(
+                          color: Colors.black.withOpacity(0.05),
+                          blurRadius: 10,
+                          offset: const Offset(0, 4),
+                        ),
+                    ],
+                    border: Border.all(
+                      color: isDark ? Colors.grey[800]! : Colors.grey[300]!,
+                      width: 1,
+                    ),
+                  ),
+                  child: Row(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      const Padding(
+                        padding: EdgeInsets.only(top: 4, right: 15),
+                        child: Icon(Icons.car_crash, color: Colors.blue),
+                      ),
+                      Expanded(
+                        child: Wrap(
+                          spacing: 8.0,
+                          runSpacing: 8.0,
+                          children: _poskozeniMoznosti.map((String value) {
+                            final isSelected =
+                                _vybranePoskozeni.contains(value);
+                            return FilterChip(
+                              label: Text(value),
+                              selected: isSelected,
+                              onSelected: (bool selected) {
+                                setState(() {
+                                  if (value == 'Žádné') {
+                                    if (selected) {
+                                      _vybranePoskozeni.clear();
+                                      _vybranePoskozeni.add('Žádné');
+                                    } else {
+                                      _vybranePoskozeni.remove('Žádné');
+                                    }
+                                  } else {
+                                    if (selected) {
+                                      _vybranePoskozeni.remove('Žádné');
+                                      _vybranePoskozeni.add(value);
+                                    } else {
+                                      _vybranePoskozeni.remove(value);
+                                    }
+                                  }
+                                });
+                              },
+                              selectedColor: Colors.blue.withOpacity(0.2),
+                              checkmarkColor: Colors.blue,
+                              shape: RoundedRectangleBorder(
+                                borderRadius: BorderRadius.circular(10),
+                                side: BorderSide(
+                                  color: isSelected
+                                      ? Colors.blue
+                                      : (isDark
+                                          ? Colors.grey[800]!
+                                          : Colors.grey[300]!),
+                                ),
+                              ),
+                              backgroundColor: isDark
+                                  ? const Color(0xFF2C2C2C)
+                                  : Colors.grey[50],
+                            );
+                          }).toList(),
+                        ),
+                      ),
+                    ],
+                  ),
+                ),
+              ],
+            ),
+            const SizedBox(height: 25),
+
+            Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                const Text(
+                  'Platnost STK',
+                  style: TextStyle(fontWeight: FontWeight.bold, color: Colors.grey),
+                ),
+                const SizedBox(height: 8),
+                Row(
+                  children: [
+                    Expanded(
+                      child: _buildHalfInput(
+                        'Měsíc',
+                        Icons.calendar_month,
+                        _stkMesicController,
+                        isDark,
+                        TextInputType.number,
+                      ),
+                    ),
+                    const SizedBox(width: 15),
+                    Expanded(
+                      child: _buildHalfInput(
+                        'Rok',
+                        Icons.edit_calendar,
+                        _stkRokController,
+                        isDark,
+                        TextInputType.number,
+                      ),
+                    ),
+                  ],
+                ),
+              ],
+            ),
+            const SizedBox(height: 25),
+
+            Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                const Text(
+                  'Hloubka dezénu pneu (v mm)',
+                  style: TextStyle(fontWeight: FontWeight.bold, color: Colors.grey),
+                ),
+                const SizedBox(height: 8),
+                Row(
+                  children: [
+                    Expanded(
+                      child: _buildHalfInput(
+                        'Levá př.',
+                        Icons.tire_repair,
+                        _pneuLPController,
+                        isDark,
+                        const TextInputType.numberWithOptions(decimal: true),
+                      ),
+                    ),
+                    const SizedBox(width: 15),
+                    Expanded(
+                      child: _buildHalfInput(
+                        'Pravá př.',
+                        Icons.tire_repair,
+                        _pneuPPController,
+                        isDark,
+                        const TextInputType.numberWithOptions(decimal: true),
+                      ),
+                    ),
+                  ],
+                ),
+                const SizedBox(height: 15),
+                Row(
+                  children: [
+                    Expanded(
+                      child: _buildHalfInput(
+                        'Levá zad.',
+                        Icons.tire_repair,
+                        _pneuLZController,
+                        isDark,
+                        const TextInputType.numberWithOptions(decimal: true),
+                      ),
+                    ),
+                    const SizedBox(width: 15),
+                    Expanded(
+                      child: _buildHalfInput(
+                        'Pravá zad.',
+                        Icons.tire_repair,
+                        _pneuPZController,
+                        isDark,
+                        const TextInputType.numberWithOptions(decimal: true),
+                      ),
+                    ),
+                  ],
+                ),
+              ],
+            ),
+            const SizedBox(height: 30),
+
+            Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                const Text(
+                  'Dodatečné poznámky',
+                  style: TextStyle(fontWeight: FontWeight.bold, color: Colors.grey),
+                ),
+                const SizedBox(height: 8),
+                Container(
+                  decoration: BoxDecoration(
+                    boxShadow: [
+                      if (!isDark)
+                        BoxShadow(
+                          color: Colors.black.withOpacity(0.05),
+                          blurRadius: 10,
+                          offset: const Offset(0, 4),
+                        ),
+                    ],
+                    borderRadius: BorderRadius.circular(15),
+                  ),
+                  child: TextField(
+                    controller: _poznamkyController,
+                    maxLines: 3,
+                    decoration: InputDecoration(
+                      hintText: 'Poznámky...',
+                      prefixIcon: const Padding(
+                        padding: EdgeInsets.only(bottom: 40),
+                        child: Icon(Icons.notes, color: Colors.blue),
+                      ),
+                      filled: true,
+                      fillColor:
+                          isDark ? const Color(0xFF1E1E1E) : Colors.white,
+                      enabledBorder: OutlineInputBorder(
+                        borderRadius: BorderRadius.circular(15),
+                        borderSide: BorderSide(
+                            color: isDark ? Colors.grey[800]! : Colors.grey[300]!,
+                            width: 1),
+                      ),
+                      focusedBorder: OutlineInputBorder(
+                        borderRadius: BorderRadius.circular(15),
+                        borderSide:
+                            const BorderSide(color: Colors.blue, width: 2),
+                      ),
+                      border: OutlineInputBorder(
+                        borderRadius: BorderRadius.circular(15),
+                        borderSide: BorderSide(
+                            color: isDark ? Colors.grey[800]! : Colors.grey[300]!,
+                            width: 1),
+                      ),
+                    ),
+                  ),
+                ),
+              ],
+            ),
+          ],
+        ),
+      );
+
+  Widget _buildBottomPanel(bool isDark) => Container(
+        padding: const EdgeInsets.fromLTRB(30, 20, 30, 30),
+        decoration: BoxDecoration(
+          color: isDark ? const Color(0xFF121212) : Colors.white,
+          boxShadow: [
+            BoxShadow(
+              color: Colors.black.withOpacity(0.05),
+              blurRadius: 10,
+              offset: const Offset(0, -5),
+            ),
+          ],
+        ),
+        child: SafeArea(
+          child: Column(
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              Row(
+                children: List.generate(
+                  _totalPages,
+                  (index) => Expanded(
+                    child: Container(
+                      height: 4,
+                      margin: const EdgeInsets.symmetric(horizontal: 4),
+                      decoration: BoxDecoration(
+                        color: index <= _currentPage
+                            ? Colors.blue
+                            : Colors.grey[300],
+                        borderRadius: BorderRadius.circular(2),
+                      ),
+                    ),
+                  ),
+                ),
+              ),
+              const SizedBox(height: 20),
+              Row(
+                children: [
+                  if (_currentPage > 0)
+                    IconButton.filledTonal(
+                      onPressed: _moveBack,
+                      icon: const Icon(Icons.arrow_back_ios_new_rounded),
+                      padding: const EdgeInsets.all(15),
+                    ),
+                  if (_currentPage > 0) const SizedBox(width: 15),
+                  Expanded(
+                    child: ElevatedButton(
+                      onPressed: _moveNext,
+                      style: ElevatedButton.styleFrom(
+                        backgroundColor: Colors.blue,
+                        foregroundColor: Colors.white,
+                        padding: const EdgeInsets.symmetric(vertical: 18),
+                        shape: RoundedRectangleBorder(
+                          borderRadius: BorderRadius.circular(18),
+                        ),
+                      ),
+                      child: Text(
+                        _currentPage == _totalPages - 1
+                            ? 'DOKONČIT'
+                            : 'DALŠÍ KROK',
+                        style: const TextStyle(fontWeight: FontWeight.bold),
+                      ),
                     ),
                   ),
                 ],
               ),
-            ),
-          ],
-        ),
-        const SizedBox(height: 25),
-
-        Column(
-          crossAxisAlignment: CrossAxisAlignment.start,
-          children: [
-            const Text(
-              '2. Platnost STK',
-              style: TextStyle(fontWeight: FontWeight.bold, color: Colors.grey),
-            ),
-            const SizedBox(height: 8),
-            Row(
-              children: [
-                Expanded(
-                  child: _buildHalfInput(
-                    'Měsíc',
-                    Icons.calendar_month,
-                    _stkMesicController,
-                    isDark,
-                    TextInputType.number,
-                  ),
-                ),
-                const SizedBox(width: 15),
-                Expanded(
-                  child: _buildHalfInput(
-                    'Rok',
-                    Icons.edit_calendar,
-                    _stkRokController,
-                    isDark,
-                    TextInputType.number,
-                  ),
-                ),
-              ],
-            ),
-          ],
-        ),
-        const SizedBox(height: 25),
-
-        Column(
-          crossAxisAlignment: CrossAxisAlignment.start,
-          children: [
-            const Text(
-              '3. Hloubka dezénu pneu (v mm)',
-              style: TextStyle(fontWeight: FontWeight.bold, color: Colors.grey),
-            ),
-            const SizedBox(height: 8),
-            Row(
-              children: [
-                Expanded(
-                  child: _buildHalfInput(
-                    'Levá př.',
-                    Icons.tire_repair,
-                    _pneuLPController,
-                    isDark,
-                    const TextInputType.numberWithOptions(decimal: true),
-                  ),
-                ),
-                const SizedBox(width: 15),
-                Expanded(
-                  child: _buildHalfInput(
-                    'Pravá př.',
-                    Icons.tire_repair,
-                    _pneuPPController,
-                    isDark,
-                    const TextInputType.numberWithOptions(decimal: true),
-                  ),
-                ),
-              ],
-            ),
-            const SizedBox(height: 15),
-            Row(
-              children: [
-                Expanded(
-                  child: _buildHalfInput(
-                    'Levá zad.',
-                    Icons.tire_repair,
-                    _pneuLZController,
-                    isDark,
-                    const TextInputType.numberWithOptions(decimal: true),
-                  ),
-                ),
-                const SizedBox(width: 15),
-                Expanded(
-                  child: _buildHalfInput(
-                    'Pravá zad.',
-                    Icons.tire_repair,
-                    _pneuPZController,
-                    isDark,
-                    const TextInputType.numberWithOptions(decimal: true),
-                  ),
-                ),
-              ],
-            ),
-          ],
-        ),
-        const SizedBox(height: 30),
-
-        Column(
-          crossAxisAlignment: CrossAxisAlignment.start,
-          children: [
-            const Text(
-              'Dodatečné poznámky',
-              style: TextStyle(fontWeight: FontWeight.bold, color: Colors.grey),
-            ),
-            const SizedBox(height: 8),
-            TextField(
-              controller: _poznamkyController,
-              maxLines: 3,
-              decoration: InputDecoration(
-                hintText: 'Poznámky...',
-                prefixIcon: const Padding(
-                  padding: EdgeInsets.only(bottom: 40),
-                  child: Icon(Icons.notes, color: Colors.blue),
-                ),
-                filled: true,
-                fillColor: isDark ? const Color(0xFF1E1E1E) : Colors.white,
-                border: OutlineInputBorder(
-                  borderRadius: BorderRadius.circular(15),
-                  borderSide: BorderSide.none,
-                ),
-              ),
-            ),
-          ],
-        ),
-      ],
-    ),
-  );
-
-  Widget _buildBottomPanel(bool isDark) => Container(
-    padding: const EdgeInsets.fromLTRB(30, 20, 30, 30),
-    decoration: BoxDecoration(
-      color: isDark ? const Color(0xFF121212) : Colors.white,
-      boxShadow: [
-        BoxShadow(
-          color: Colors.black.withOpacity(0.05),
-          blurRadius: 10,
-          offset: const Offset(0, -5),
-        ),
-      ],
-    ),
-    child: SafeArea(
-      child: Column(
-        mainAxisSize: MainAxisSize.min,
-        children: [
-          Row(
-            children: List.generate(
-              _totalPages,
-              (index) => Expanded(
-                child: Container(
-                  height: 4,
-                  margin: const EdgeInsets.symmetric(horizontal: 4),
-                  decoration: BoxDecoration(
-                    color: index <= _currentPage
-                        ? Colors.blue
-                        : Colors.grey[300],
-                    borderRadius: BorderRadius.circular(2),
-                  ),
-                ),
-              ),
-            ),
-          ),
-          const SizedBox(height: 20),
-          Row(
-            children: [
-              if (_currentPage > 0)
-                IconButton.filledTonal(
-                  onPressed: _moveBack,
-                  icon: const Icon(Icons.arrow_back_ios_new_rounded),
-                  padding: const EdgeInsets.all(15),
-                ),
-              if (_currentPage > 0) const SizedBox(width: 15),
-              Expanded(
-                child: ElevatedButton(
-                  onPressed: _moveNext,
-                  style: ElevatedButton.styleFrom(
-                    backgroundColor: Colors.blue,
-                    foregroundColor: Colors.white,
-                    padding: const EdgeInsets.symmetric(vertical: 18),
-                    shape: RoundedRectangleBorder(
-                      borderRadius: BorderRadius.circular(18),
-                    ),
-                  ),
-                  child: Text(
-                    _currentPage == _totalPages - 1 ? 'DOKONČIT' : 'DALŠÍ KROK',
-                    style: const TextStyle(fontWeight: FontWeight.bold),
-                  ),
-                ),
-              ),
             ],
           ),
-        ],
-      ),
-    ),
-  );
+        ),
+      );
 
   Widget _buildInput(
     String label,
@@ -935,36 +1246,64 @@ class _MainWizardPageState extends State<MainWizardPage> {
     bool isDark, {
     bool caps = false,
     bool numbersOnly = false,
-  }) => Column(
-    crossAxisAlignment: CrossAxisAlignment.start,
-    children: [
-      Text(
-        label,
-        style: const TextStyle(fontWeight: FontWeight.bold, color: Colors.grey),
-      ),
-      const SizedBox(height: 8),
-      TextField(
-        controller: controller,
-        textCapitalization: caps
-            ? TextCapitalization.characters
-            : TextCapitalization.none,
-        keyboardType: numbersOnly ? TextInputType.number : TextInputType.text,
-        decoration: InputDecoration(
-          prefixIcon: Icon(icon, color: Colors.blue),
-          suffixIcon: IconButton(
-            icon: const Icon(Icons.document_scanner),
-            onPressed: () => _scanText(controller, numbersOnly),
+  }) =>
+      Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Text(
+            label,
+            style: const TextStyle(
+                fontWeight: FontWeight.bold, color: Colors.grey),
           ),
-          filled: true,
-          fillColor: isDark ? const Color(0xFF1E1E1E) : Colors.white,
-          border: OutlineInputBorder(
-            borderRadius: BorderRadius.circular(15),
-            borderSide: BorderSide.none,
+          const SizedBox(height: 8),
+          Container(
+            decoration: BoxDecoration(
+              boxShadow: [
+                if (!isDark)
+                  BoxShadow(
+                    color: Colors.black.withOpacity(0.05),
+                    blurRadius: 10,
+                    offset: const Offset(0, 4),
+                  ),
+              ],
+              borderRadius: BorderRadius.circular(15),
+            ),
+            child: TextField(
+              controller: controller,
+              textCapitalization: caps
+                  ? TextCapitalization.characters
+                  : TextCapitalization.none,
+              keyboardType:
+                  numbersOnly ? TextInputType.number : TextInputType.text,
+              decoration: InputDecoration(
+                prefixIcon: Icon(icon, color: Colors.blue),
+                suffixIcon: IconButton(
+                  icon: const Icon(Icons.document_scanner),
+                  onPressed: () => _scanText(controller, numbersOnly),
+                ),
+                filled: true,
+                fillColor: isDark ? const Color(0xFF1E1E1E) : Colors.white,
+                enabledBorder: OutlineInputBorder(
+                  borderRadius: BorderRadius.circular(15),
+                  borderSide: BorderSide(
+                      color: isDark ? Colors.grey[800]! : Colors.grey[300]!,
+                      width: 1),
+                ),
+                focusedBorder: OutlineInputBorder(
+                  borderRadius: BorderRadius.circular(15),
+                  borderSide: const BorderSide(color: Colors.blue, width: 2),
+                ),
+                border: OutlineInputBorder(
+                  borderRadius: BorderRadius.circular(15),
+                  borderSide: BorderSide(
+                      color: isDark ? Colors.grey[800]! : Colors.grey[300]!,
+                      width: 1),
+                ),
+              ),
+            ),
           ),
-        ),
-      ),
-    ],
-  );
+        ],
+      );
 
   Widget _buildHalfInput(
     String hint,
@@ -973,19 +1312,44 @@ class _MainWizardPageState extends State<MainWizardPage> {
     bool isDark,
     TextInputType type,
   ) {
-    return TextField(
-      controller: controller,
-      keyboardType: type,
-      decoration: InputDecoration(
-        hintText: hint,
-        prefixIcon: Icon(icon, color: Colors.blue, size: 20),
-        filled: true,
-        fillColor: isDark ? const Color(0xFF1E1E1E) : Colors.white,
-        border: OutlineInputBorder(
-          borderRadius: BorderRadius.circular(15),
-          borderSide: BorderSide.none,
+    return Container(
+      decoration: BoxDecoration(
+        boxShadow: [
+          if (!isDark)
+            BoxShadow(
+              color: Colors.black.withOpacity(0.05),
+              blurRadius: 10,
+              offset: const Offset(0, 4),
+            ),
+        ],
+        borderRadius: BorderRadius.circular(15),
+      ),
+      child: TextField(
+        controller: controller,
+        keyboardType: type,
+        decoration: InputDecoration(
+          hintText: hint,
+          prefixIcon: Icon(icon, color: Colors.blue, size: 20),
+          filled: true,
+          fillColor: isDark ? const Color(0xFF1E1E1E) : Colors.white,
+          enabledBorder: OutlineInputBorder(
+            borderRadius: BorderRadius.circular(15),
+            borderSide: BorderSide(
+                color: isDark ? Colors.grey[800]! : Colors.grey[300]!,
+                width: 1),
+          ),
+          focusedBorder: OutlineInputBorder(
+            borderRadius: BorderRadius.circular(15),
+            borderSide: const BorderSide(color: Colors.blue, width: 2),
+          ),
+          border: OutlineInputBorder(
+            borderRadius: BorderRadius.circular(15),
+            borderSide: BorderSide(
+                color: isDark ? Colors.grey[800]! : Colors.grey[300]!,
+                width: 1),
+          ),
+          contentPadding: const EdgeInsets.symmetric(vertical: 15),
         ),
-        contentPadding: const EdgeInsets.symmetric(vertical: 15),
       ),
     );
   }
@@ -1014,6 +1378,9 @@ class _HistoryPageState extends State<HistoryPage> {
   @override
   Widget build(BuildContext context) {
     final isDark = Theme.of(context).brightness == Brightness.dark;
+    final user = FirebaseAuth.instance.currentUser;
+
+    if (user == null) return const Center(child: Text("Nejste přihlášeni."));
 
     return Column(
       crossAxisAlignment: CrossAxisAlignment.start,
@@ -1028,22 +1395,48 @@ class _HistoryPageState extends State<HistoryPage> {
                 style: TextStyle(fontSize: 32, fontWeight: FontWeight.bold),
               ),
               const SizedBox(height: 15),
-              TextField(
-                onChanged: (value) {
-                  setState(() {
-                    _searchQuery = value.toLowerCase();
-                  });
-                },
-                decoration: InputDecoration(
-                  hintText: 'Hledat SPZ, VIN nebo číslo...',
-                  prefixIcon: const Icon(Icons.search, color: Colors.blue),
-                  filled: true,
-                  fillColor: isDark ? const Color(0xFF1E1E1E) : Colors.white,
-                  border: OutlineInputBorder(
-                    borderRadius: BorderRadius.circular(15),
-                    borderSide: BorderSide.none,
+              Container(
+                decoration: BoxDecoration(
+                  boxShadow: [
+                    if (!isDark)
+                      BoxShadow(
+                        color: Colors.black.withOpacity(0.05),
+                        blurRadius: 10,
+                        offset: const Offset(0, 4),
+                      ),
+                  ],
+                  borderRadius: BorderRadius.circular(15),
+                ),
+                child: TextField(
+                  onChanged: (value) {
+                    setState(() {
+                      _searchQuery = value.toLowerCase();
+                    });
+                  },
+                  decoration: InputDecoration(
+                    hintText: 'Hledat SPZ, VIN nebo číslo...',
+                    prefixIcon: const Icon(Icons.search, color: Colors.blue),
+                    filled: true,
+                    fillColor: isDark ? const Color(0xFF1E1E1E) : Colors.white,
+                    enabledBorder: OutlineInputBorder(
+                      borderRadius: BorderRadius.circular(15),
+                      borderSide: BorderSide(
+                          color: isDark ? Colors.grey[800]! : Colors.grey[300]!,
+                          width: 1),
+                    ),
+                    focusedBorder: OutlineInputBorder(
+                      borderRadius: BorderRadius.circular(15),
+                      borderSide:
+                          const BorderSide(color: Colors.blue, width: 2),
+                    ),
+                    border: OutlineInputBorder(
+                      borderRadius: BorderRadius.circular(15),
+                      borderSide: BorderSide(
+                          color: isDark ? Colors.grey[800]! : Colors.grey[300]!,
+                          width: 1),
+                    ),
+                    contentPadding: const EdgeInsets.symmetric(vertical: 15),
                   ),
-                  contentPadding: const EdgeInsets.symmetric(vertical: 15),
                 ),
               ),
             ],
@@ -1053,6 +1446,7 @@ class _HistoryPageState extends State<HistoryPage> {
           child: StreamBuilder<QuerySnapshot>(
             stream: FirebaseFirestore.instance
                 .collection('zakazky')
+                .where('servis_id', isEqualTo: user.uid)
                 .orderBy('cas_prijeti', descending: true)
                 .snapshots(),
             builder: (context, snapshot) {
@@ -1164,7 +1558,6 @@ class _HistoryPageState extends State<HistoryPage> {
       }
     }
 
-    // --- NOVÉ: Zpracování pole "Poškození" pro staré texty i nové pole ---
     String poskozeniText = 'Neuvedeno';
     if (stav['poskozeni'] is List) {
       poskozeniText = (stav['poskozeni'] as List).join(', ');
@@ -1253,7 +1646,21 @@ class _HistoryPageState extends State<HistoryPage> {
             ),
             const SizedBox(height: 15),
 
-            // Nyní se zde vypíše poskozeniText (čárkou oddělený seznam)
+            // --- NOVÉ: Tachometr a Palivo v detailu ---
+            _buildDetailRow(
+              'Tachometr:',
+              '${stav['tachometr']?.toString().isNotEmpty == true ? stav['tachometr'] : 'Neuvedeno'} km',
+              Icons.speed,
+              Colors.grey,
+            ),
+            _buildDetailRow(
+              'Palivo:',
+              stav['nadrz'] != null ? '${stav['nadrz'].toInt()} %' : 'Neuvedeno',
+              Icons.local_gas_station,
+              Colors.blueGrey,
+            ),
+            const SizedBox(height: 10),
+
             _buildDetailRow(
               'Poškození:',
               poskozeniText,
@@ -1436,8 +1843,7 @@ class _HistoryPageState extends State<HistoryPage> {
     return Padding(
       padding: const EdgeInsets.only(bottom: 12),
       child: Row(
-        crossAxisAlignment:
-            CrossAxisAlignment.start, // Důležité pro delší texty poškození
+        crossAxisAlignment: CrossAxisAlignment.start,
         children: [
           Icon(icon, color: iconColor, size: 20),
           const SizedBox(width: 10),
@@ -1472,7 +1878,6 @@ class _HistoryPageState extends State<HistoryPage> {
     final fontRegular = await PdfGoogleFonts.robotoRegular();
     final fontBold = await PdfGoogleFonts.robotoBold();
 
-    // Zpracování poškození pro PDF
     String poskozeniPdfText = 'Neuvedeno';
     if (stav['poskozeni'] is List) {
       poskozeniPdfText = (stav['poskozeni'] as List).join(', ');
@@ -1597,7 +2002,36 @@ class _HistoryPageState extends State<HistoryPage> {
               ),
               pw.SizedBox(height: 15),
 
-              // Výpis poskozeniPdfText namísto pouhého jednohoslova
+              // --- NOVÉ: Tachometr a Palivo v PDF ---
+              pw.Row(
+                mainAxisAlignment: pw.MainAxisAlignment.spaceBetween,
+                children: [
+                  pw.Text(
+                    'Stav tachometru:',
+                    style: pw.TextStyle(font: fontRegular),
+                  ),
+                  pw.Text(
+                    '${stav['tachometr']?.toString().isNotEmpty == true ? stav['tachometr'] : 'Neuvedeno'} km',
+                    style: pw.TextStyle(font: fontBold),
+                  ),
+                ],
+              ),
+              pw.SizedBox(height: 5),
+              pw.Row(
+                mainAxisAlignment: pw.MainAxisAlignment.spaceBetween,
+                children: [
+                  pw.Text(
+                    'Stav paliva v nádrži:',
+                    style: pw.TextStyle(font: fontRegular),
+                  ),
+                  pw.Text(
+                    stav['nadrz'] != null ? '${stav['nadrz'].toInt()} %' : 'Neuvedeno',
+                    style: pw.TextStyle(font: fontBold),
+                  ),
+                ],
+              ),
+              pw.SizedBox(height: 5),
+
               pw.Row(
                 mainAxisAlignment: pw.MainAxisAlignment.spaceBetween,
                 children: [
