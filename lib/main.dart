@@ -46,17 +46,23 @@ const List<String> stavyZakazky = [
   'V opravě',
   'Čeká na díly',
   'K vyzvednutí',
-  'Dokončeno'
+  'Dokončeno',
 ];
 
 Color getStatusColor(String stav) {
   switch (stav) {
-    case 'Přijato': return Colors.blue;
-    case 'V opravě': return Colors.orange;
-    case 'Čeká na díly': return Colors.redAccent;
-    case 'K vyzvednutí': return Colors.purple;
-    case 'Dokončeno': return Colors.green;
-    default: return Colors.grey;
+    case 'Přijato':
+      return Colors.blue;
+    case 'V opravě':
+      return Colors.orange;
+    case 'Čeká na díly':
+      return Colors.redAccent;
+    case 'K vyzvednutí':
+      return Colors.purple;
+    case 'Dokončeno':
+      return Colors.green;
+    default:
+      return Colors.grey;
   }
 }
 
@@ -128,7 +134,8 @@ class VistoApp extends StatelessWidget {
             builder: (context, snapshot) {
               if (snapshot.connectionState == ConnectionState.waiting) {
                 return const Scaffold(
-                    body: Center(child: CircularProgressIndicator()));
+                  body: Center(child: CircularProgressIndicator()),
+                );
               }
               if (snapshot.hasData) {
                 return const MainScreen();
@@ -155,6 +162,11 @@ class AuthScreen extends StatefulWidget {
 class _AuthScreenState extends State<AuthScreen> {
   final _emailController = TextEditingController();
   final _passwordController = TextEditingController();
+
+  // NOVÉ: Políčka pro registraci
+  final _nazevServisuController = TextEditingController();
+  final _icoServisuController = TextEditingController();
+
   bool _isLogin = true;
   bool _isLoading = false;
 
@@ -163,18 +175,46 @@ class _AuthScreenState extends State<AuthScreen> {
     final password = _passwordController.text.trim();
     if (email.isEmpty || password.isEmpty) return;
 
+    if (!_isLogin) {
+      if (_nazevServisuController.text.trim().isEmpty ||
+          _icoServisuController.text.trim().isEmpty) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(
+            content: Text('Vyplňte prosím Název servisu i IČO.'),
+            backgroundColor: Colors.orange,
+          ),
+        );
+        return;
+      }
+    }
+
     setState(() => _isLoading = true);
     try {
       if (_isLogin) {
-        await FirebaseAuth.instance
-            .signInWithEmailAndPassword(email: email, password: password);
+        await FirebaseAuth.instance.signInWithEmailAndPassword(
+          email: email,
+          password: password,
+        );
       } else {
-        await FirebaseAuth.instance
+        // Registrace
+        UserCredential userCredential = await FirebaseAuth.instance
             .createUserWithEmailAndPassword(email: email, password: password);
+
+        // Uložení nastavení servisu
+        await FirebaseFirestore.instance
+            .collection('nastaveni_servisu')
+            .doc(userCredential.user!.uid)
+            .set({
+              'nazev_servisu': _nazevServisuController.text.trim(),
+              'ico_servisu': _icoServisuController.text.trim(),
+              'hodinova_sazba': 0.0, // Výchozí sazba
+              'email_servisu': email,
+            });
       }
     } catch (e) {
       ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(content: Text('Chyba: $e'), backgroundColor: Colors.red));
+        SnackBar(content: Text('Chyba: $e'), backgroundColor: Colors.red),
+      );
     } finally {
       if (mounted) setState(() => _isLoading = false);
     }
@@ -192,88 +232,50 @@ class _AuthScreenState extends State<AuthScreen> {
             child: Column(
               children: [
                 const Icon(Icons.bolt, color: Color(0xFF0061FF), size: 80),
-                const Text('Visto',
-                    style: TextStyle(
-                        fontSize: 42,
-                        fontWeight: FontWeight.w900,
-                        letterSpacing: -1.5)),
+                const Text(
+                  'Visto',
+                  style: TextStyle(
+                    fontSize: 42,
+                    fontWeight: FontWeight.w900,
+                    letterSpacing: -1.5,
+                  ),
+                ),
                 const SizedBox(height: 40),
-                Container(
-                  decoration: BoxDecoration(
-                    boxShadow: [
-                      if (!isDark)
-                        BoxShadow(
-                            color: Colors.black.withOpacity(0.05),
-                            blurRadius: 10,
-                            offset: const Offset(0, 4)),
-                    ],
-                    borderRadius: BorderRadius.circular(15),
+
+                // Zobrazení polí navíc při registraci
+                if (!_isLogin) ...[
+                  _buildAuthField(
+                    controller: _nazevServisuController,
+                    labelText: 'Název servisu',
+                    icon: Icons.business,
+                    isDark: isDark,
                   ),
-                  child: TextField(
-                    controller: _emailController,
-                    decoration: InputDecoration(
-                      labelText: 'E-mail servisu',
-                      filled: true,
-                      fillColor:
-                          isDark ? const Color(0xFF1E1E1E) : Colors.white,
-                      enabledBorder: OutlineInputBorder(
-                          borderRadius: BorderRadius.circular(15),
-                          borderSide: BorderSide(
-                              color:
-                                  isDark ? Colors.grey[800]! : Colors.grey[300]!,
-                              width: 1)),
-                      focusedBorder: OutlineInputBorder(
-                          borderRadius: BorderRadius.circular(15),
-                          borderSide:
-                              const BorderSide(color: Colors.blue, width: 2)),
-                      border: OutlineInputBorder(
-                          borderRadius: BorderRadius.circular(15),
-                          borderSide: BorderSide(
-                              color:
-                                  isDark ? Colors.grey[800]! : Colors.grey[300]!,
-                              width: 1)),
-                    ),
+                  const SizedBox(height: 15),
+                  _buildAuthField(
+                    controller: _icoServisuController,
+                    labelText: 'IČO servisu',
+                    icon: Icons.numbers,
+                    isDark: isDark,
+                    isNumber: true,
                   ),
+                  const SizedBox(height: 15),
+                ],
+
+                _buildAuthField(
+                  controller: _emailController,
+                  labelText: 'E-mail',
+                  icon: Icons.email,
+                  isDark: isDark,
                 ),
                 const SizedBox(height: 15),
-                Container(
-                  decoration: BoxDecoration(
-                    boxShadow: [
-                      if (!isDark)
-                        BoxShadow(
-                            color: Colors.black.withOpacity(0.05),
-                            blurRadius: 10,
-                            offset: const Offset(0, 4)),
-                    ],
-                    borderRadius: BorderRadius.circular(15),
-                  ),
-                  child: TextField(
-                    controller: _passwordController,
-                    obscureText: true,
-                    decoration: InputDecoration(
-                      labelText: 'Heslo',
-                      filled: true,
-                      fillColor:
-                          isDark ? const Color(0xFF1E1E1E) : Colors.white,
-                      enabledBorder: OutlineInputBorder(
-                          borderRadius: BorderRadius.circular(15),
-                          borderSide: BorderSide(
-                              color:
-                                  isDark ? Colors.grey[800]! : Colors.grey[300]!,
-                              width: 1)),
-                      focusedBorder: OutlineInputBorder(
-                          borderRadius: BorderRadius.circular(15),
-                          borderSide:
-                              const BorderSide(color: Colors.blue, width: 2)),
-                      border: OutlineInputBorder(
-                          borderRadius: BorderRadius.circular(15),
-                          borderSide: BorderSide(
-                              color:
-                                  isDark ? Colors.grey[800]! : Colors.grey[300]!,
-                              width: 1)),
-                    ),
-                  ),
+                _buildAuthField(
+                  controller: _passwordController,
+                  labelText: 'Heslo',
+                  icon: Icons.lock,
+                  isDark: isDark,
+                  isPassword: true,
                 ),
+
                 const SizedBox(height: 30),
                 SizedBox(
                   width: double.infinity,
@@ -284,28 +286,86 @@ class _AuthScreenState extends State<AuthScreen> {
                       foregroundColor: Colors.white,
                       padding: const EdgeInsets.symmetric(vertical: 18),
                       shape: RoundedRectangleBorder(
-                          borderRadius: BorderRadius.circular(18)),
+                        borderRadius: BorderRadius.circular(18),
+                      ),
                     ),
                     child: _isLoading
                         ? const SizedBox(
                             height: 20,
                             width: 20,
                             child: CircularProgressIndicator(
-                                color: Colors.white, strokeWidth: 2))
+                              color: Colors.white,
+                              strokeWidth: 2,
+                            ),
+                          )
                         : Text(
                             _isLogin ? 'PŘIHLÁSIT SE' : 'ZAREGISTROVAT SERVIS',
-                            style: const TextStyle(fontWeight: FontWeight.bold)),
+                            style: const TextStyle(fontWeight: FontWeight.bold),
+                          ),
                   ),
                 ),
                 TextButton(
                   onPressed: () => setState(() => _isLogin = !_isLogin),
                   child: Text(
-                      _isLogin
-                          ? 'Nový servis? Vytvořit účet'
-                          : 'Už máte účet? Přihlásit se',
-                      style: const TextStyle(color: Colors.grey)),
+                    _isLogin
+                        ? 'Nový servis? Vytvořit účet'
+                        : 'Už máte účet? Přihlásit se',
+                    style: const TextStyle(color: Colors.grey),
+                  ),
                 ),
               ],
+            ),
+          ),
+        ),
+      ),
+    );
+  }
+
+  Widget _buildAuthField({
+    required TextEditingController controller,
+    required String labelText,
+    required IconData icon,
+    required bool isDark,
+    bool isPassword = false,
+    bool isNumber = false,
+  }) {
+    return Container(
+      decoration: BoxDecoration(
+        boxShadow: [
+          if (!isDark)
+            BoxShadow(
+              color: Colors.black.withOpacity(0.05),
+              blurRadius: 10,
+              offset: const Offset(0, 4),
+            ),
+        ],
+        borderRadius: BorderRadius.circular(15),
+      ),
+      child: TextField(
+        controller: controller,
+        obscureText: isPassword,
+        keyboardType: isNumber ? TextInputType.number : TextInputType.text,
+        decoration: InputDecoration(
+          labelText: labelText,
+          prefixIcon: Icon(icon, color: Colors.blue),
+          filled: true,
+          fillColor: isDark ? const Color(0xFF1E1E1E) : Colors.white,
+          enabledBorder: OutlineInputBorder(
+            borderRadius: BorderRadius.circular(15),
+            borderSide: BorderSide(
+              color: isDark ? Colors.grey[800]! : Colors.grey[300]!,
+              width: 1,
+            ),
+          ),
+          focusedBorder: OutlineInputBorder(
+            borderRadius: BorderRadius.circular(15),
+            borderSide: const BorderSide(color: Colors.blue, width: 2),
+          ),
+          border: OutlineInputBorder(
+            borderRadius: BorderRadius.circular(15),
+            borderSide: BorderSide(
+              color: isDark ? Colors.grey[800]! : Colors.grey[300]!,
+              width: 1,
             ),
           ),
         ),
@@ -327,10 +387,12 @@ class MainScreen extends StatefulWidget {
 class _MainScreenState extends State<MainScreen> {
   int _currentIndex = 0;
 
+  // NOVÉ: Přidána záložka Nastavení
   final List<Widget> _pages = [
     const MainWizardPage(),
     const ServiceProgressPage(),
-    const HistoryPage()
+    const HistoryPage(),
+    const SettingsPage(),
   ];
 
   @override
@@ -340,11 +402,6 @@ class _MainScreenState extends State<MainScreen> {
     return Scaffold(
       backgroundColor: Theme.of(context).colorScheme.surface,
       appBar: AppBar(
-        leading: IconButton(
-          icon: const Icon(Icons.logout, color: Colors.grey),
-          onPressed: () => FirebaseAuth.instance.signOut(),
-          tooltip: 'Odhlásit se',
-        ),
         title: FittedBox(
           fit: BoxFit.scaleDown,
           child: Row(
@@ -397,15 +454,265 @@ class _MainScreenState extends State<MainScreen> {
           NavigationDestination(
             icon: Icon(Icons.build_circle_outlined),
             selectedIcon: Icon(Icons.build_circle),
-            label: 'Průběh servisu',
+            label: 'Průběh',
           ),
           NavigationDestination(
             icon: Icon(Icons.history_rounded),
             selectedIcon: Icon(Icons.history_rounded),
             label: 'Historie',
           ),
+          NavigationDestination(
+            icon: Icon(Icons.settings_outlined),
+            selectedIcon: Icon(Icons.settings),
+            label: 'Nastavení',
+          ),
         ],
       ),
+    );
+  }
+}
+
+// ==============================================================================
+// NOVÉ: STRÁNKA NASTAVENÍ (PROFIL SERVISU)
+// ==============================================================================
+
+class SettingsPage extends StatefulWidget {
+  const SettingsPage({super.key});
+
+  @override
+  State<SettingsPage> createState() => _SettingsPageState();
+}
+
+class _SettingsPageState extends State<SettingsPage> {
+  final _nazevController = TextEditingController();
+  final _icoController = TextEditingController();
+  final _sazbaController = TextEditingController();
+  bool _isLoading = true;
+  bool _isSaving = false;
+
+  @override
+  void initState() {
+    super.initState();
+    _loadSettings();
+  }
+
+  Future<void> _loadSettings() async {
+    final user = FirebaseAuth.instance.currentUser;
+    if (user != null) {
+      final doc = await FirebaseFirestore.instance
+          .collection('nastaveni_servisu')
+          .doc(user.uid)
+          .get();
+      if (doc.exists) {
+        final data = doc.data()!;
+        _nazevController.text = data['nazev_servisu'] ?? '';
+        _icoController.text = data['ico_servisu'] ?? '';
+        _sazbaController.text = (data['hodinova_sazba'] ?? 0.0).toString();
+      }
+    }
+    if (mounted) setState(() => _isLoading = false);
+  }
+
+  Future<void> _saveSettings() async {
+    setState(() => _isSaving = true);
+    try {
+      final user = FirebaseAuth.instance.currentUser;
+      if (user != null) {
+        await FirebaseFirestore.instance
+            .collection('nastaveni_servisu')
+            .doc(user.uid)
+            .set({
+              'nazev_servisu': _nazevController.text.trim(),
+              'ico_servisu': _icoController.text.trim(),
+              'hodinova_sazba':
+                  double.tryParse(_sazbaController.text.replaceAll(',', '.')) ??
+                  0.0,
+            }, SetOptions(merge: true));
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(
+            content: Text('Nastavení úspěšně uloženo.'),
+            backgroundColor: Colors.green,
+          ),
+        );
+      }
+    } catch (e) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(
+          content: Text('Chyba při ukládání: $e'),
+          backgroundColor: Colors.red,
+        ),
+      );
+    } finally {
+      if (mounted) setState(() => _isSaving = false);
+    }
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final isDark = Theme.of(context).brightness == Brightness.dark;
+    final user = FirebaseAuth.instance.currentUser;
+
+    if (_isLoading) return const Center(child: CircularProgressIndicator());
+
+    return SingleChildScrollView(
+      padding: const EdgeInsets.all(30),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          const Text(
+            'Nastavení servisu',
+            style: TextStyle(fontSize: 32, fontWeight: FontWeight.bold),
+          ),
+          const SizedBox(height: 10),
+          Text(
+            'Přihlášen jako: ${user?.email ?? "Neznámý uživatel"}',
+            style: const TextStyle(color: Colors.grey),
+          ),
+          const SizedBox(height: 40),
+
+          _buildSettingsInput(
+            'Název servisu (Zobrazí se v PDF)',
+            Icons.business,
+            _nazevController,
+            isDark,
+          ),
+          const SizedBox(height: 20),
+          _buildSettingsInput(
+            'IČO servisu (Zobrazí se v PDF)',
+            Icons.numbers,
+            _icoController,
+            isDark,
+            isNumber: true,
+          ),
+          const SizedBox(height: 20),
+          _buildSettingsInput(
+            'Hodinová sazba bez DPH (Kč)',
+            Icons.attach_money,
+            _sazbaController,
+            isDark,
+            isNumber: true,
+          ),
+
+          const SizedBox(height: 40),
+          SizedBox(
+            width: double.infinity,
+            child: ElevatedButton(
+              onPressed: _isSaving ? null : _saveSettings,
+              style: ElevatedButton.styleFrom(
+                backgroundColor: Colors.blue,
+                foregroundColor: Colors.white,
+                padding: const EdgeInsets.symmetric(vertical: 18),
+                shape: RoundedRectangleBorder(
+                  borderRadius: BorderRadius.circular(15),
+                ),
+              ),
+              child: _isSaving
+                  ? const SizedBox(
+                      height: 20,
+                      width: 20,
+                      child: CircularProgressIndicator(
+                        color: Colors.white,
+                        strokeWidth: 2,
+                      ),
+                    )
+                  : const Text(
+                      'ULOŽIT NASTAVENÍ',
+                      style: TextStyle(fontWeight: FontWeight.bold),
+                    ),
+            ),
+          ),
+
+          const SizedBox(height: 40),
+          const Divider(),
+          const SizedBox(height: 20),
+
+          SizedBox(
+            width: double.infinity,
+            child: OutlinedButton.icon(
+              onPressed: () => FirebaseAuth.instance.signOut(),
+              icon: const Icon(Icons.logout, color: Colors.red),
+              label: const Text(
+                'Odhlásit se',
+                style: TextStyle(
+                  color: Colors.red,
+                  fontWeight: FontWeight.bold,
+                ),
+              ),
+              style: OutlinedButton.styleFrom(
+                padding: const EdgeInsets.symmetric(vertical: 15),
+                side: const BorderSide(color: Colors.red),
+                shape: RoundedRectangleBorder(
+                  borderRadius: BorderRadius.circular(15),
+                ),
+              ),
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+
+  Widget _buildSettingsInput(
+    String label,
+    IconData icon,
+    TextEditingController controller,
+    bool isDark, {
+    bool isNumber = false,
+  }) {
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        Text(
+          label,
+          style: const TextStyle(
+            fontWeight: FontWeight.bold,
+            color: Colors.grey,
+          ),
+        ),
+        const SizedBox(height: 8),
+        Container(
+          decoration: BoxDecoration(
+            boxShadow: [
+              if (!isDark)
+                BoxShadow(
+                  color: Colors.black.withOpacity(0.05),
+                  blurRadius: 10,
+                  offset: const Offset(0, 4),
+                ),
+            ],
+            borderRadius: BorderRadius.circular(15),
+          ),
+          child: TextField(
+            controller: controller,
+            keyboardType: isNumber
+                ? const TextInputType.numberWithOptions(decimal: true)
+                : TextInputType.text,
+            decoration: InputDecoration(
+              prefixIcon: Icon(icon, color: Colors.blue),
+              filled: true,
+              fillColor: isDark ? const Color(0xFF1E1E1E) : Colors.white,
+              enabledBorder: OutlineInputBorder(
+                borderRadius: BorderRadius.circular(15),
+                borderSide: BorderSide(
+                  color: isDark ? Colors.grey[800]! : Colors.grey[300]!,
+                  width: 1,
+                ),
+              ),
+              focusedBorder: OutlineInputBorder(
+                borderRadius: BorderRadius.circular(15),
+                borderSide: const BorderSide(color: Colors.blue, width: 2),
+              ),
+              border: OutlineInputBorder(
+                borderRadius: BorderRadius.circular(15),
+                borderSide: BorderSide(
+                  color: isDark ? Colors.grey[800]! : Colors.grey[300]!,
+                  width: 1,
+                ),
+              ),
+            ),
+          ),
+        ),
+      ],
     );
   }
 }
@@ -423,9 +730,9 @@ class MainWizardPage extends StatefulWidget {
 class _MainWizardPageState extends State<MainWizardPage> {
   final PageController _pageController = PageController();
   int _currentPage = 0;
-  final int _totalPages = 5; 
+  final int _totalPages = 5;
   bool _isUploading = false;
-  bool _isLoadingAres = false; 
+  bool _isLoadingAres = false;
 
   // --- Zákazník ---
   final _jmenoController = TextEditingController();
@@ -433,25 +740,32 @@ class _MainWizardPageState extends State<MainWizardPage> {
   final _adresaController = TextEditingController();
   final _telefonController = TextEditingController();
   final _emailZController = TextEditingController();
-  
+
   String? _vybranyZakaznikId;
-  List<Map<String, dynamic>> _nalezenaVozidla = []; 
+  List<Map<String, dynamic>> _nalezenaVozidla = [];
 
   // --- Vozidlo ---
   final _zakazkaController = TextEditingController();
   final _spzController = TextEditingController();
   final _vinController = TextEditingController();
-  final _motorizaceController = TextEditingController(); 
+  final _motorizaceController = TextEditingController();
   final _poznamkyController = TextEditingController();
-  final _znackaController = TextEditingController(); 
-  final _modelController = TextEditingController(); 
-  final _rokVyrobyController = TextEditingController(); 
+  final _znackaController = TextEditingController();
+  final _modelController = TextEditingController();
+  final _rokVyrobyController = TextEditingController();
 
-  String _vybranePalivo = 'Benzín'; 
-  final List<String> _moznostiPaliva = ['Benzín', 'Nafta', 'Elektro', 'Hybrid', 'LPG/CNG', 'Jiné']; 
-  
-  String _vybranaPrevodovka = 'Manuální'; 
-  final List<String> _moznostiPrevodovky = ['Manuální', 'Automatická', 'Jiné']; 
+  String _vybranePalivo = 'Benzín';
+  final List<String> _moznostiPaliva = [
+    'Benzín',
+    'Nafta',
+    'Elektro',
+    'Hybrid',
+    'LPG/CNG',
+    'Jiné',
+  ];
+
+  String _vybranaPrevodovka = 'Manuální';
+  final List<String> _moznostiPrevodovky = ['Manuální', 'Automatická', 'Jiné'];
 
   final Map<String, List<XFile>> _categoryImages = {};
   final ImagePicker _picker = ImagePicker();
@@ -492,7 +806,10 @@ class _MainWizardPageState extends State<MainWizardPage> {
     final ico = _icoController.text.trim();
     if (ico.isEmpty || ico.length != 8) {
       ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(content: Text('Zadejte platné 8místné IČO.'), backgroundColor: Colors.orange),
+        const SnackBar(
+          content: Text('Zadejte platné 8místné IČO.'),
+          backgroundColor: Colors.orange,
+        ),
       );
       return;
     }
@@ -500,7 +817,11 @@ class _MainWizardPageState extends State<MainWizardPage> {
     setState(() => _isLoadingAres = true);
 
     try {
-      final response = await http.get(Uri.parse('https://ares.gov.cz/ekonomicke-subjekty-v-be/rest/ekonomicke-subjekty/$ico'));
+      final response = await http.get(
+        Uri.parse(
+          'https://ares.gov.cz/ekonomicke-subjekty-v-be/rest/ekonomicke-subjekty/$ico',
+        ),
+      );
       if (response.statusCode == 200) {
         final data = json.decode(utf8.decode(response.bodyBytes));
         setState(() {
@@ -510,16 +831,25 @@ class _MainWizardPageState extends State<MainWizardPage> {
           _adresaController.text = ulice;
         });
         ScaffoldMessenger.of(context).showSnackBar(
-          const SnackBar(content: Text('Údaje z ARES byly úspěšně načteny.'), backgroundColor: Colors.green),
+          const SnackBar(
+            content: Text('Údaje z ARES byly úspěšně načteny.'),
+            backgroundColor: Colors.green,
+          ),
         );
       } else {
         ScaffoldMessenger.of(context).showSnackBar(
-          const SnackBar(content: Text('Zadané IČO nebylo v registru ARES nalezeno.'), backgroundColor: Colors.red),
+          const SnackBar(
+            content: Text('Zadané IČO nebylo v registru ARES nalezeno.'),
+            backgroundColor: Colors.red,
+          ),
         );
       }
     } catch (e) {
       ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(content: Text('Chyba při komunikaci s ARES: $e'), backgroundColor: Colors.red),
+        SnackBar(
+          content: Text('Chyba při komunikaci s ARES: $e'),
+          backgroundColor: Colors.red,
+        ),
       );
     } finally {
       setState(() => _isLoadingAres = false);
@@ -541,15 +871,18 @@ class _MainWizardPageState extends State<MainWizardPage> {
             _telefonController.text = zakaznik['telefon'] ?? '';
             _emailZController.text = zakaznik['email'] ?? '';
           });
-          
+
           final user = FirebaseAuth.instance.currentUser;
           if (user != null && _vybranyZakaznikId != null) {
-            final vozidlaSnap = await FirebaseFirestore.instance.collection('vozidla')
+            final vozidlaSnap = await FirebaseFirestore.instance
+                .collection('vozidla')
                 .where('servis_id', isEqualTo: user.uid)
                 .where('zakaznik_id', isEqualTo: _vybranyZakaznikId)
                 .get();
             setState(() {
-              _nalezenaVozidla = vozidlaSnap.docs.map((d) => d.data() as Map<String, dynamic>).toList();
+              _nalezenaVozidla = vozidlaSnap.docs
+                  .map((d) => d.data() as Map<String, dynamic>)
+                  .toList();
             });
           }
         },
@@ -660,84 +993,94 @@ class _MainWizardPageState extends State<MainWizardPage> {
     if (_signatureController.isNotEmpty) {
       final Uint8List? signatureBytes = await _signatureController.toPngBytes();
       if (signatureBytes != null) {
-        Reference ref = FirebaseStorage.instance.ref().child('servisy/${user.uid}/zakazky/$zakazkaId/podpis_${DateTime.now().millisecondsSinceEpoch}.png');
+        Reference ref = FirebaseStorage.instance.ref().child(
+          'servisy/${user.uid}/zakazky/$zakazkaId/podpis_${DateTime.now().millisecondsSinceEpoch}.png',
+        );
         await ref.putData(signatureBytes);
         podpisUrl = await ref.getDownloadURL();
       }
     }
 
-    String zakaznikId = _vybranyZakaznikId ?? 'ZAK_${DateTime.now().millisecondsSinceEpoch}';
+    String zakaznikId =
+        _vybranyZakaznikId ?? 'ZAK_${DateTime.now().millisecondsSinceEpoch}';
     if (_jmenoController.text.trim().isNotEmpty) {
-      await FirebaseFirestore.instance.collection('zakaznici').doc('${user.uid}_$zakaznikId').set({
-        'servis_id': user.uid,
-        'id_zakaznika': zakaznikId,
-        'jmeno': _jmenoController.text.trim(),
-        'ico': _icoController.text.trim(),
-        'adresa': _adresaController.text.trim(),
-        'telefon': _telefonController.text.trim(),
-        'email': _emailZController.text.trim(),
-        'posledni_navsteva': FieldValue.serverTimestamp(),
-      }, SetOptions(merge: true));
+      await FirebaseFirestore.instance
+          .collection('zakaznici')
+          .doc('${user.uid}_$zakaznikId')
+          .set({
+            'servis_id': user.uid,
+            'id_zakaznika': zakaznikId,
+            'jmeno': _jmenoController.text.trim(),
+            'ico': _icoController.text.trim(),
+            'adresa': _adresaController.text.trim(),
+            'telefon': _telefonController.text.trim(),
+            'email': _emailZController.text.trim(),
+            'posledni_navsteva': FieldValue.serverTimestamp(),
+          }, SetOptions(merge: true));
     }
 
     String spz = _spzController.text.trim().toUpperCase();
     if (spz.isNotEmpty) {
-      await FirebaseFirestore.instance.collection('vozidla').doc('${user.uid}_$spz').set({
-        'servis_id': user.uid,
-        'zakaznik_id': zakaznikId,
-        'spz': spz,
-        'vin': _vinController.text.trim().toUpperCase(),
-        'znacka': _znackaController.text.trim(),
-        'model': _modelController.text.trim(),
-        'rok_vyroby': _rokVyrobyController.text.trim(),
-        'motorizace': _motorizaceController.text.trim(),
-        'palivo': _vybranePalivo,
-        'prevodovka': _vybranaPrevodovka,
-        'posledni_navsteva': FieldValue.serverTimestamp(),
-      }, SetOptions(merge: true));
+      await FirebaseFirestore.instance
+          .collection('vozidla')
+          .doc('${user.uid}_$spz')
+          .set({
+            'servis_id': user.uid,
+            'zakaznik_id': zakaznikId,
+            'spz': spz,
+            'vin': _vinController.text.trim().toUpperCase(),
+            'znacka': _znackaController.text.trim(),
+            'model': _modelController.text.trim(),
+            'rok_vyroby': _rokVyrobyController.text.trim(),
+            'motorizace': _motorizaceController.text.trim(),
+            'palivo': _vybranePalivo,
+            'prevodovka': _vybranaPrevodovka,
+            'posledni_navsteva': FieldValue.serverTimestamp(),
+          }, SetOptions(merge: true));
     }
 
     await FirebaseFirestore.instance
         .collection('zakazky')
         .doc('${user.uid}_$zakazkaId')
         .set({
-      'servis_id': user.uid,
-      'cislo_zakazky': zakazkaId,
-      'spz': spz,
-      'vin': _vinController.text.trim().toUpperCase(),
-      'znacka': _znackaController.text.trim(),
-      'model': _modelController.text.trim(),
-      'rok_vyroby': _rokVyrobyController.text.trim(),
-      'motorizace': _motorizaceController.text.trim(),
-      'palivo_typ': _vybranePalivo,
-      'prevodovka': _vybranaPrevodovka,
-      'stav_zakazky': 'Přijato',
-      'zakaznik': {
-        'id_zakaznika': zakaznikId,
-        'jmeno': _jmenoController.text.trim(),
-        'ico': _icoController.text.trim(),
-        'adresa': _adresaController.text.trim(),
-        'telefon': _telefonController.text.trim(),
-        'email': _emailZController.text.trim(),
-      },
-      'stav_vozidla': {
-        'tachometr': _tachometrController.text.trim(),
-        'nadrz': _stavNadrze,
-        'poskozeni':
-            _vybranePoskozeni.isEmpty ? ['Neuvedeno'] : _vybranePoskozeni,
-        'stk_mesic': _stkMesicController.text.trim(),
-        'stk_rok': _stkRokController.text.trim(),
-        'pneu_lp': _pneuLPController.text.trim(),
-        'pneu_pp': _pneuPPController.text.trim(),
-        'pneu_lz': _pneuLZController.text.trim(),
-        'pneu_pz': _pneuPZController.text.trim(),
-      },
-      'poznamky': _poznamkyController.text.trim(),
-      'fotografie_urls': imageUrlsByCategory,
-      'podpis_url': podpisUrl,
-      'provedene_prace': [],
-      'cas_prijeti': FieldValue.serverTimestamp(),
-    });
+          'servis_id': user.uid,
+          'cislo_zakazky': zakazkaId,
+          'spz': spz,
+          'vin': _vinController.text.trim().toUpperCase(),
+          'znacka': _znackaController.text.trim(),
+          'model': _modelController.text.trim(),
+          'rok_vyroby': _rokVyrobyController.text.trim(),
+          'motorizace': _motorizaceController.text.trim(),
+          'palivo_typ': _vybranePalivo,
+          'prevodovka': _vybranaPrevodovka,
+          'stav_zakazky': 'Přijato',
+          'zakaznik': {
+            'id_zakaznika': zakaznikId,
+            'jmeno': _jmenoController.text.trim(),
+            'ico': _icoController.text.trim(),
+            'adresa': _adresaController.text.trim(),
+            'telefon': _telefonController.text.trim(),
+            'email': _emailZController.text.trim(),
+          },
+          'stav_vozidla': {
+            'tachometr': _tachometrController.text.trim(),
+            'nadrz': _stavNadrze,
+            'poskozeni': _vybranePoskozeni.isEmpty
+                ? ['Neuvedeno']
+                : _vybranePoskozeni,
+            'stk_mesic': _stkMesicController.text.trim(),
+            'stk_rok': _stkRokController.text.trim(),
+            'pneu_lp': _pneuLPController.text.trim(),
+            'pneu_pp': _pneuPPController.text.trim(),
+            'pneu_lz': _pneuLZController.text.trim(),
+            'pneu_pz': _pneuPZController.text.trim(),
+          },
+          'poznamky': _poznamkyController.text.trim(),
+          'fotografie_urls': imageUrlsByCategory,
+          'podpis_url': podpisUrl,
+          'provedene_prace': [],
+          'cas_prijeti': FieldValue.serverTimestamp(),
+        });
   }
 
   void _resetForm() {
@@ -880,11 +1223,11 @@ class _MainWizardPageState extends State<MainWizardPage> {
                 onPageChanged: (idx) => setState(() => _currentPage = idx),
                 physics: const NeverScrollableScrollPhysics(),
                 children: [
-                  _buildZakaznikStep(isDark), 
-                  _buildVozidloStep(isDark),  
+                  _buildZakaznikStep(isDark),
+                  _buildVozidloStep(isDark),
                   _buildPhotoStep(isDark),
                   _buildCheckStep(isDark),
-                  _buildPodpisStep(isDark), 
+                  _buildPodpisStep(isDark),
                 ],
               ),
             ),
@@ -919,767 +1262,812 @@ class _MainWizardPageState extends State<MainWizardPage> {
   }
 
   Widget _buildZakaznikStep(bool isDark) => SingleChildScrollView(
-        padding: const EdgeInsets.all(30),
-        child: Column(
-          crossAxisAlignment: CrossAxisAlignment.start,
-          children: [
-            const Text(
-              'Údaje o zákazníkovi',
-              style: TextStyle(fontSize: 32, fontWeight: FontWeight.bold),
-            ),
-            const SizedBox(height: 40),
-            
-            _buildInput(
-              'Jméno a příjmení / Název firmy',
-              Icons.person,
-              _jmenoController,
-              isDark,
-              customSuffix: IconButton(
-                icon: const Icon(Icons.person_search, color: Colors.blue),
-                onPressed: _otevritVyberZakaznika,
-                tooltip: 'Hledat uloženého zákazníka',
-              )
-            ),
-            const SizedBox(height: 20),
-
-            Column(
-              crossAxisAlignment: CrossAxisAlignment.start,
-              children: [
-                const Text(
-                  'IČO (ARES vyhledávání)',
-                  style: TextStyle(fontWeight: FontWeight.bold, color: Colors.grey),
-                ),
-                const SizedBox(height: 8),
-                Container(
-                  decoration: BoxDecoration(
-                    boxShadow: [
-                      if (!isDark)
-                        BoxShadow(
-                          color: Colors.black.withOpacity(0.05),
-                          blurRadius: 10,
-                          offset: const Offset(0, 4),
-                        ),
-                    ],
-                    borderRadius: BorderRadius.circular(15),
-                  ),
-                  child: TextField(
-                    controller: _icoController,
-                    keyboardType: TextInputType.number,
-                    decoration: InputDecoration(
-                      prefixIcon: const Icon(Icons.business, color: Colors.blue),
-                      suffixIcon: _isLoadingAres
-                          ? const Padding(
-                              padding: EdgeInsets.all(12.0),
-                              child: SizedBox(
-                                width: 20,
-                                height: 20,
-                                child: CircularProgressIndicator(strokeWidth: 2),
-                              ),
-                            )
-                          : IconButton(
-                              icon: const Icon(Icons.search, color: Colors.blue),
-                              onPressed: _fetchAresData,
-                              tooltip: 'Hledat v ARES',
-                            ),
-                      filled: true,
-                      fillColor: isDark ? const Color(0xFF1E1E1E) : Colors.white,
-                      enabledBorder: OutlineInputBorder(
-                        borderRadius: BorderRadius.circular(15),
-                        borderSide: BorderSide(
-                            color: isDark ? Colors.grey[800]! : Colors.grey[300]!,
-                            width: 1),
-                      ),
-                      focusedBorder: OutlineInputBorder(
-                        borderRadius: BorderRadius.circular(15),
-                        borderSide: const BorderSide(color: Colors.blue, width: 2),
-                      ),
-                      border: OutlineInputBorder(
-                        borderRadius: BorderRadius.circular(15),
-                        borderSide: BorderSide(
-                            color: isDark ? Colors.grey[800]! : Colors.grey[300]!,
-                            width: 1),
-                      ),
-                    ),
-                  ),
-                ),
-              ],
-            ),
-            
-            const SizedBox(height: 20),
-            _buildInput(
-              'Adresa',
-              Icons.location_on,
-              _adresaController,
-              isDark,
-            ),
-            const SizedBox(height: 20),
-            _buildInput(
-              'Telefonní číslo',
-              Icons.phone,
-              _telefonController,
-              isDark,
-              numbersOnly: true,
-            ),
-            const SizedBox(height: 20),
-            _buildInput(
-              'E-mail',
-              Icons.email,
-              _emailZController,
-              isDark,
-            ),
-
-            if (_nalezenaVozidla.isNotEmpty) ...[
-              const SizedBox(height: 30),
-              const Divider(),
-              const SizedBox(height: 15),
-              const Text('Uložená vozidla zákazníka:', style: TextStyle(fontWeight: FontWeight.bold, fontSize: 16)),
-              const SizedBox(height: 10),
-              Wrap(
-                spacing: 10,
-                runSpacing: 10,
-                children: _nalezenaVozidla.map((v) => ActionChip(
-                  backgroundColor: Colors.white,
-                  side: const BorderSide(color: Colors.blue),
-                  label: Text('${v['spz']} ${v['znacka'] != null && v['znacka'].toString().isNotEmpty ? '(${v['znacka']} ${v['model'] ?? ''})' : ''}', style: const TextStyle(fontWeight: FontWeight.bold)),
-                  avatar: const Icon(Icons.directions_car, color: Colors.blue, size: 16),
-                  onPressed: () {
-                    setState(() {
-                      _spzController.text = v['spz'] ?? '';
-                      _vinController.text = v['vin'] ?? '';
-                      _znackaController.text = v['znacka'] ?? '';
-                      _modelController.text = v['model'] ?? '';
-                      _rokVyrobyController.text = v['rok_vyroby'] ?? '';
-                      _motorizaceController.text = v['motorizace'] ?? '';
-                      if (v['palivo'] != null && _moznostiPaliva.contains(v['palivo'])) _vybranePalivo = v['palivo'];
-                      if (v['prevodovka'] != null && _moznostiPrevodovky.contains(v['prevodovka'])) _vybranaPrevodovka = v['prevodovka'];
-                    });
-                    ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('Údaje o vozidle byly doplněny.'), backgroundColor: Colors.green));
-                  }
-                )).toList(),
-              )
-            ]
-          ],
+    padding: const EdgeInsets.all(30),
+    child: Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        const Text(
+          'Údaje o zákazníkovi',
+          style: TextStyle(fontSize: 32, fontWeight: FontWeight.bold),
         ),
-      );
+        const SizedBox(height: 40),
 
-  Widget _buildVozidloStep(bool isDark) => SingleChildScrollView(
-        padding: const EdgeInsets.all(30),
-        child: Column(
-          crossAxisAlignment: CrossAxisAlignment.start,
-          children: [
-            const Text(
-              'Údaje o vozidle',
-              style: TextStyle(fontSize: 32, fontWeight: FontWeight.bold),
-            ),
-            const SizedBox(height: 40),
-            _buildInput(
-              'Číslo zakázky *',
-              Icons.onetwothree,
-              _zakazkaController,
-              isDark,
-              caps: true,
-            ),
-            const SizedBox(height: 20),
-            _buildInput(
-              'SPZ vozidla *',
-              Icons.abc,
-              _spzController,
-              isDark,
-              caps: true,
-            ),
-            const SizedBox(height: 20),
-            _buildInput('VIN kód', Icons.abc, _vinController, isDark, caps: true),
-            const SizedBox(height: 20),
-            _buildInput('Značka (např. Škoda)', Icons.directions_car, _znackaController, isDark),
-            const SizedBox(height: 20),
-            _buildInput('Model (např. Octavia)', Icons.directions_car_filled, _modelController, isDark),
-            const SizedBox(height: 20),
-            _buildInput('Rok výroby', Icons.calendar_today, _rokVyrobyController, isDark, numbersOnly: true),
-            const SizedBox(height: 20),
-            _buildInput('Motorizace (např. 2.0 TDI)', Icons.settings, _motorizaceController, isDark),
-            const SizedBox(height: 20),
-            _buildDropdown('Typ paliva', Icons.local_gas_station, _vybranePalivo, _moznostiPaliva, (v) => setState(() => _vybranePalivo = v!), isDark),
-            const SizedBox(height: 20),
-            _buildDropdown('Převodovka', Icons.settings_input_component, _vybranaPrevodovka, _moznostiPrevodovky, (v) => setState(() => _vybranaPrevodovka = v!), isDark),
-          ],
+        _buildInput(
+          'Jméno a příjmení / Název firmy',
+          Icons.person,
+          _jmenoController,
+          isDark,
+          customSuffix: IconButton(
+            icon: const Icon(Icons.person_search, color: Colors.blue),
+            onPressed: _otevritVyberZakaznika,
+            tooltip: 'Hledat uloženého zákazníka',
+          ),
         ),
-      );
+        const SizedBox(height: 20),
 
-  Widget _buildPhotoStep(bool isDark) => Padding(
-        padding: const EdgeInsets.all(30),
-        child: Column(
+        Column(
           crossAxisAlignment: CrossAxisAlignment.start,
           children: [
             const Text(
-              'Fotodokumentace',
-              style: TextStyle(fontSize: 32, fontWeight: FontWeight.bold),
+              'IČO (ARES vyhledávání)',
+              style: TextStyle(fontWeight: FontWeight.bold, color: Colors.grey),
             ),
-            const SizedBox(height: 20),
-            const Text(
-              'Vyfoťte sérii fotek, nebo vyberte hromadně z galerie.',
-              style: TextStyle(fontSize: 16, color: Colors.grey),
-            ),
-            const SizedBox(height: 20),
-            Expanded(
-              child: ListView.separated(
-                itemCount: photoCategories.length,
-                separatorBuilder: (context, index) =>
-                    const SizedBox(height: 15),
-                itemBuilder: (context, index) {
-                  final key = photoCategories.keys.elementAt(index);
-                  final category = photoCategories[key];
-                  final label = category['label'] as String;
-                  final icon = category['icon'] as IconData;
-                  final takenPhotos = _categoryImages[key] ?? [];
-
-                  return Card(
-                    color: isDark ? const Color(0xFF1A1A1A) : Colors.white,
-                    shape: RoundedRectangleBorder(
-                      borderRadius: BorderRadius.circular(20),
-                      side: BorderSide(
-                        color: takenPhotos.isNotEmpty
-                            ? Colors.green.withOpacity(0.5)
-                            : Colors.grey.withOpacity(0.2),
-                        width: takenPhotos.isNotEmpty ? 2 : 1,
-                      ),
-                    ),
-                    child: Padding(
-                      padding: const EdgeInsets.all(15),
-                      child: Column(
-                        crossAxisAlignment: CrossAxisAlignment.start,
-                        children: [
-                          Row(
-                            children: [
-                              Icon(icon, color: Colors.blue, size: 30),
-                              const SizedBox(width: 15),
-                              Expanded(
-                                child: Text(
-                                  label,
-                                  style: const TextStyle(
-                                    fontSize: 16,
-                                    fontWeight: FontWeight.bold,
-                                  ),
-                                ),
-                              ),
-                              IconButton(
-                                onPressed: () => _pickFromGallery(key),
-                                icon: const Icon(
-                                  Icons.photo_library_rounded,
-                                  color: Colors.blueGrey,
-                                ),
-                                tooltip: 'Přidat z galerie',
-                              ),
-                              IconButton(
-                                onPressed: () => _takePhotoSeries(key),
-                                icon: const Icon(
-                                  Icons.add_a_photo_rounded,
-                                  color: Colors.blue,
-                                ),
-                                tooltip: 'Sériové focení',
-                              ),
-                            ],
-                          ),
-                          if (takenPhotos.isNotEmpty) ...[
-                            const SizedBox(height: 10),
-                            SizedBox(
-                              height: 80,
-                              child: ListView.builder(
-                                scrollDirection: Axis.horizontal,
-                                itemCount: takenPhotos.length,
-                                itemBuilder: (context, photoIndex) {
-                                  final photo = takenPhotos[photoIndex];
-                                  return Stack(
-                                    children: [
-                                      Container(
-                                        margin:
-                                            const EdgeInsets.only(right: 10),
-                                        child: ClipRRect(
-                                          borderRadius:
-                                              BorderRadius.circular(10),
-                                          child: kIsWeb
-                                              ? Image.network(
-                                                  photo.path,
-                                                  width: 80,
-                                                  height: 80,
-                                                  fit: BoxFit.cover,
-                                                )
-                                              : Image.file(
-                                                  File(photo.path),
-                                                  width: 80,
-                                                  height: 80,
-                                                  fit: BoxFit.cover,
-                                                ),
-                                        ),
-                                      ),
-                                      Positioned(
-                                        top: 4,
-                                        right: 14,
-                                        child: GestureDetector(
-                                          onTap: () => setState(
-                                            () => _categoryImages[key]!
-                                                .removeAt(
-                                              photoIndex,
-                                            ),
-                                          ),
-                                          child: const CircleAvatar(
-                                            radius: 10,
-                                            backgroundColor: Colors.white,
-                                            child: Icon(
-                                              Icons.close,
-                                              size: 14,
-                                              color: Colors.red,
-                                            ),
-                                          ),
-                                        ),
-                                      ),
-                                    ],
-                                  );
-                                },
-                              ),
-                            ),
-                          ],
-                        ],
-                      ),
-                    ),
-                  );
-                },
-              ),
-            ),
-          ],
-        ),
-      );
-
-  Widget _buildCheckStep(bool isDark) => SingleChildScrollView(
-        padding: const EdgeInsets.all(30),
-        child: Column(
-          crossAxisAlignment: CrossAxisAlignment.start,
-          children: [
-            const Text(
-              'Stav vozidla',
-              style: TextStyle(fontSize: 32, fontWeight: FontWeight.bold),
-            ),
-            const SizedBox(height: 30),
-
-            _buildInput(
-              'Stav tachometru (km)',
-              Icons.speed,
-              _tachometrController,
-              isDark,
-              numbersOnly: true,
-            ),
-            const SizedBox(height: 25),
-
-            Column(
-              crossAxisAlignment: CrossAxisAlignment.start,
-              children: [
-                Text(
-                  'Stav paliva v nádrži (${_stavNadrze.toInt()} %)',
-                  style: const TextStyle(
-                      fontWeight: FontWeight.bold, color: Colors.grey),
-                ),
-                const SizedBox(height: 5),
-                Container(
-                  padding:
-                      const EdgeInsets.symmetric(horizontal: 10, vertical: 5),
-                  decoration: BoxDecoration(
-                    color: isDark ? const Color(0xFF1E1E1E) : Colors.white,
-                    borderRadius: BorderRadius.circular(15),
-                    boxShadow: [
-                      if (!isDark)
-                        BoxShadow(
-                          color: Colors.black.withOpacity(0.05),
-                          blurRadius: 10,
-                          offset: const Offset(0, 4),
-                        ),
-                    ],
-                    border: Border.all(
-                      color: isDark ? Colors.grey[800]! : Colors.grey[300]!,
-                      width: 1,
-                    ),
-                  ),
-                  child: Row(
-                    children: [
-                      Icon(Icons.local_gas_station,
-                          color: _stavNadrze < 20 ? Colors.red : Colors.blue),
-                      Expanded(
-                        child: Slider(
-                          value: _stavNadrze,
-                          min: 0,
-                          max: 100,
-                          divisions: 4,
-                          label: '${_stavNadrze.toInt()} %',
-                          activeColor: Colors.blue,
-                          onChanged: (val) => setState(() => _stavNadrze = val),
-                        ),
-                      ),
-                    ],
-                  ),
-                ),
-              ],
-            ),
-            const SizedBox(height: 30),
-            const Divider(),
-            const SizedBox(height: 20),
-
-            Column(
-              crossAxisAlignment: CrossAxisAlignment.start,
-              children: [
-                const Text(
-                  'Zjištěné poškození (lze vybrat více)',
-                  style: TextStyle(
-                      fontWeight: FontWeight.bold, color: Colors.grey),
-                ),
-                const SizedBox(height: 8),
-                Container(
-                  width: double.infinity,
-                  padding: const EdgeInsets.all(15),
-                  decoration: BoxDecoration(
-                    color: isDark ? const Color(0xFF1E1E1E) : Colors.white,
-                    borderRadius: BorderRadius.circular(15),
-                    boxShadow: [
-                      if (!isDark)
-                        BoxShadow(
-                          color: Colors.black.withOpacity(0.05),
-                          blurRadius: 10,
-                          offset: const Offset(0, 4),
-                        ),
-                    ],
-                    border: Border.all(
-                      color: isDark ? Colors.grey[800]! : Colors.grey[300]!,
-                      width: 1,
-                    ),
-                  ),
-                  child: Row(
-                    crossAxisAlignment: CrossAxisAlignment.start,
-                    children: [
-                      const Padding(
-                        padding: EdgeInsets.only(top: 4, right: 15),
-                        child: Icon(Icons.car_crash, color: Colors.blue),
-                      ),
-                      Expanded(
-                        child: Wrap(
-                          spacing: 8.0,
-                          runSpacing: 8.0,
-                          children: _poskozeniMoznosti.map((String value) {
-                            final isSelected =
-                                _vybranePoskozeni.contains(value);
-                            return FilterChip(
-                              label: Text(value),
-                              selected: isSelected,
-                              onSelected: (bool selected) {
-                                setState(() {
-                                  if (value == 'Žádné') {
-                                    if (selected) {
-                                      _vybranePoskozeni.clear();
-                                      _vybranePoskozeni.add('Žádné');
-                                    } else {
-                                      _vybranePoskozeni.remove('Žádné');
-                                    }
-                                  } else {
-                                    if (selected) {
-                                      _vybranePoskozeni.remove('Žádné');
-                                      _vybranePoskozeni.add(value);
-                                    } else {
-                                      _vybranePoskozeni.remove(value);
-                                    }
-                                  }
-                                });
-                              },
-                              selectedColor: Colors.blue.withOpacity(0.2),
-                              checkmarkColor: Colors.blue,
-                              shape: RoundedRectangleBorder(
-                                borderRadius: BorderRadius.circular(10),
-                                side: BorderSide(
-                                  color: isSelected
-                                      ? Colors.blue
-                                      : (isDark
-                                          ? Colors.grey[800]!
-                                          : Colors.grey[300]!),
-                                ),
-                              ),
-                              backgroundColor: isDark
-                                  ? const Color(0xFF2C2C2C)
-                                  : Colors.grey[50],
-                            );
-                          }).toList(),
-                        ),
-                      ),
-                    ],
-                  ),
-                ),
-              ],
-            ),
-            const SizedBox(height: 25),
-
-            Column(
-              crossAxisAlignment: CrossAxisAlignment.start,
-              children: [
-                const Text(
-                  'Platnost STK',
-                  style: TextStyle(
-                      fontWeight: FontWeight.bold, color: Colors.grey),
-                ),
-                const SizedBox(height: 8),
-                Row(
-                  children: [
-                    Expanded(
-                      child: _buildHalfInput(
-                        'Měsíc',
-                        Icons.calendar_month,
-                        _stkMesicController,
-                        isDark,
-                        TextInputType.number,
-                      ),
-                    ),
-                    const SizedBox(width: 15),
-                    Expanded(
-                      child: _buildHalfInput(
-                        'Rok',
-                        Icons.edit_calendar,
-                        _stkRokController,
-                        isDark,
-                        TextInputType.number,
-                      ),
-                    ),
-                  ],
-                ),
-              ],
-            ),
-            const SizedBox(height: 25),
-
-            Column(
-              crossAxisAlignment: CrossAxisAlignment.start,
-              children: [
-                const Text(
-                  'Hloubka dezénu pneu (v mm)',
-                  style: TextStyle(
-                      fontWeight: FontWeight.bold, color: Colors.grey),
-                ),
-                const SizedBox(height: 8),
-                Row(
-                  children: [
-                    Expanded(
-                      child: _buildHalfInput(
-                        'Levá př.',
-                        Icons.tire_repair,
-                        _pneuLPController,
-                        isDark,
-                        const TextInputType.numberWithOptions(decimal: true),
-                      ),
-                    ),
-                    const SizedBox(width: 15),
-                    Expanded(
-                      child: _buildHalfInput(
-                        'Pravá př.',
-                        Icons.tire_repair,
-                        _pneuPPController,
-                        isDark,
-                        const TextInputType.numberWithOptions(decimal: true),
-                      ),
-                    ),
-                  ],
-                ),
-                const SizedBox(height: 15),
-                Row(
-                  children: [
-                    Expanded(
-                      child: _buildHalfInput(
-                        'Levá zad.',
-                        Icons.tire_repair,
-                        _pneuLZController,
-                        isDark,
-                        const TextInputType.numberWithOptions(decimal: true),
-                      ),
-                    ),
-                    const SizedBox(width: 15),
-                    Expanded(
-                      child: _buildHalfInput(
-                        'Pravá zad.',
-                        Icons.tire_repair,
-                        _pneuPZController,
-                        isDark,
-                        const TextInputType.numberWithOptions(decimal: true),
-                      ),
-                    ),
-                  ],
-                ),
-              ],
-            ),
-            const SizedBox(height: 30),
-
-            Column(
-              crossAxisAlignment: CrossAxisAlignment.start,
-              children: [
-                const Text(
-                  'Dodatečné poznámky',
-                  style: TextStyle(
-                      fontWeight: FontWeight.bold, color: Colors.grey),
-                ),
-                const SizedBox(height: 8),
-                Container(
-                  decoration: BoxDecoration(
-                    boxShadow: [
-                      if (!isDark)
-                        BoxShadow(
-                          color: Colors.black.withOpacity(0.05),
-                          blurRadius: 10,
-                          offset: const Offset(0, 4),
-                        ),
-                    ],
-                    borderRadius: BorderRadius.circular(15),
-                  ),
-                  child: TextField(
-                    controller: _poznamkyController,
-                    maxLines: 3,
-                    decoration: InputDecoration(
-                      hintText: 'Poznámky...',
-                      prefixIcon: const Padding(
-                        padding: EdgeInsets.only(bottom: 40),
-                        child: Icon(Icons.notes, color: Colors.blue),
-                      ),
-                      filled: true,
-                      fillColor:
-                          isDark ? const Color(0xFF1E1E1E) : Colors.white,
-                      enabledBorder: OutlineInputBorder(
-                        borderRadius: BorderRadius.circular(15),
-                        borderSide: BorderSide(
-                            color:
-                                isDark ? Colors.grey[800]! : Colors.grey[300]!,
-                            width: 1),
-                      ),
-                      focusedBorder: OutlineInputBorder(
-                        borderRadius: BorderRadius.circular(15),
-                        borderSide:
-                            const BorderSide(color: Colors.blue, width: 2),
-                      ),
-                      border: OutlineInputBorder(
-                        borderRadius: BorderRadius.circular(15),
-                        borderSide: BorderSide(
-                            color:
-                                isDark ? Colors.grey[800]! : Colors.grey[300]!,
-                            width: 1),
-                      ),
-                    ),
-                  ),
-                ),
-              ],
-            ),
-          ],
-        ),
-      );
-
-  Widget _buildPodpisStep(bool isDark) => SingleChildScrollView(
-        padding: const EdgeInsets.all(30),
-        child: Column(
-          crossAxisAlignment: CrossAxisAlignment.start,
-          children: [
-            const Text(
-              'Shrnutí a podpis',
-              style: TextStyle(fontSize: 32, fontWeight: FontWeight.bold),
-            ),
-            const SizedBox(height: 20),
-            const Text(
-              'Zákazník svým podpisem stvrzuje správnost výše uvedených údajů a souhlasí se stavem vozidla při převzetí do servisu.',
-              style: TextStyle(color: Colors.grey, fontSize: 16),
-            ),
-            const SizedBox(height: 30),
-            
+            const SizedBox(height: 8),
             Container(
               decoration: BoxDecoration(
-                border: Border.all(color: Colors.blue, width: 2),
+                boxShadow: [
+                  if (!isDark)
+                    BoxShadow(
+                      color: Colors.black.withOpacity(0.05),
+                      blurRadius: 10,
+                      offset: const Offset(0, 4),
+                    ),
+                ],
                 borderRadius: BorderRadius.circular(15),
-                color: Colors.white,
               ),
-              child: ClipRRect(
-                borderRadius: BorderRadius.circular(13),
-                child: Signature(
-                  controller: _signatureController,
-                  height: 250,
-                  backgroundColor: Colors.white,
-                ),
-              ),
-            ),
-            const SizedBox(height: 10),
-            Align(
-              alignment: Alignment.centerRight,
-              child: TextButton.icon(
-                onPressed: () => _signatureController.clear(),
-                icon: const Icon(Icons.clear, color: Colors.red),
-                label: const Text('Smazat podpis', style: TextStyle(color: Colors.red)),
-              ),
-            ),
-          ],
-        ),
-      );
-
-  Widget _buildBottomPanel(bool isDark) => Container(
-        padding: const EdgeInsets.fromLTRB(30, 20, 30, 30),
-        decoration: BoxDecoration(
-          color: isDark ? const Color(0xFF121212) : Colors.white,
-          boxShadow: [
-            BoxShadow(
-              color: Colors.black.withOpacity(0.05),
-              blurRadius: 10,
-              offset: const Offset(0, -5),
-            ),
-          ],
-        ),
-        child: SafeArea(
-          child: Column(
-            mainAxisSize: MainAxisSize.min,
-            children: [
-              Row(
-                children: List.generate(
-                  _totalPages,
-                  (index) => Expanded(
-                    child: Container(
-                      height: 4,
-                      margin: const EdgeInsets.symmetric(horizontal: 4),
-                      decoration: BoxDecoration(
-                        color: index <= _currentPage
-                            ? Colors.blue
-                            : Colors.grey[300],
-                        borderRadius: BorderRadius.circular(2),
-                      ),
+              child: TextField(
+                controller: _icoController,
+                keyboardType: TextInputType.number,
+                decoration: InputDecoration(
+                  prefixIcon: const Icon(Icons.business, color: Colors.blue),
+                  suffixIcon: _isLoadingAres
+                      ? const Padding(
+                          padding: EdgeInsets.all(12.0),
+                          child: SizedBox(
+                            width: 20,
+                            height: 20,
+                            child: CircularProgressIndicator(strokeWidth: 2),
+                          ),
+                        )
+                      : IconButton(
+                          icon: const Icon(Icons.search, color: Colors.blue),
+                          onPressed: _fetchAresData,
+                          tooltip: 'Hledat v ARES',
+                        ),
+                  filled: true,
+                  fillColor: isDark ? const Color(0xFF1E1E1E) : Colors.white,
+                  enabledBorder: OutlineInputBorder(
+                    borderRadius: BorderRadius.circular(15),
+                    borderSide: BorderSide(
+                      color: isDark ? Colors.grey[800]! : Colors.grey[300]!,
+                      width: 1,
+                    ),
+                  ),
+                  focusedBorder: OutlineInputBorder(
+                    borderRadius: BorderRadius.circular(15),
+                    borderSide: const BorderSide(color: Colors.blue, width: 2),
+                  ),
+                  border: OutlineInputBorder(
+                    borderRadius: BorderRadius.circular(15),
+                    borderSide: BorderSide(
+                      color: isDark ? Colors.grey[800]! : Colors.grey[300]!,
+                      width: 1,
                     ),
                   ),
                 ),
               ),
-              const SizedBox(height: 20),
-              Row(
-                children: [
-                  if (_currentPage > 0)
-                    IconButton.filledTonal(
-                      onPressed: _moveBack,
-                      icon: const Icon(Icons.arrow_back_ios_new_rounded),
-                      padding: const EdgeInsets.all(15),
+            ),
+          ],
+        ),
+
+        const SizedBox(height: 20),
+        _buildInput('Adresa', Icons.location_on, _adresaController, isDark),
+        const SizedBox(height: 20),
+        _buildInput(
+          'Telefonní číslo',
+          Icons.phone,
+          _telefonController,
+          isDark,
+          numbersOnly: true,
+        ),
+        const SizedBox(height: 20),
+        _buildInput('E-mail', Icons.email, _emailZController, isDark),
+
+        if (_nalezenaVozidla.isNotEmpty) ...[
+          const SizedBox(height: 30),
+          const Divider(),
+          const SizedBox(height: 15),
+          const Text(
+            'Uložená vozidla zákazníka:',
+            style: TextStyle(fontWeight: FontWeight.bold, fontSize: 16),
+          ),
+          const SizedBox(height: 10),
+          Wrap(
+            spacing: 10,
+            runSpacing: 10,
+            children: _nalezenaVozidla
+                .map(
+                  (v) => ActionChip(
+                    backgroundColor: Colors.white,
+                    side: const BorderSide(color: Colors.blue),
+                    label: Text(
+                      '${v['spz']} ${v['znacka'] != null && v['znacka'].toString().isNotEmpty ? '(${v['znacka']} ${v['model'] ?? ''})' : ''}',
+                      style: const TextStyle(fontWeight: FontWeight.bold),
                     ),
-                  if (_currentPage > 0) const SizedBox(width: 15),
-                  Expanded(
-                    child: ElevatedButton(
-                      onPressed: _moveNext,
-                      style: ElevatedButton.styleFrom(
-                        backgroundColor: Colors.blue,
-                        foregroundColor: Colors.white,
-                        padding: const EdgeInsets.symmetric(vertical: 18),
-                        shape: RoundedRectangleBorder(
-                          borderRadius: BorderRadius.circular(18),
+                    avatar: const Icon(
+                      Icons.directions_car,
+                      color: Colors.blue,
+                      size: 16,
+                    ),
+                    onPressed: () {
+                      setState(() {
+                        _spzController.text = v['spz'] ?? '';
+                        _vinController.text = v['vin'] ?? '';
+                        _znackaController.text = v['znacka'] ?? '';
+                        _modelController.text = v['model'] ?? '';
+                        _rokVyrobyController.text = v['rok_vyroby'] ?? '';
+                        _motorizaceController.text = v['motorizace'] ?? '';
+                        if (v['palivo'] != null &&
+                            _moznostiPaliva.contains(v['palivo']))
+                          _vybranePalivo = v['palivo'];
+                        if (v['prevodovka'] != null &&
+                            _moznostiPrevodovky.contains(v['prevodovka']))
+                          _vybranaPrevodovka = v['prevodovka'];
+                      });
+                      ScaffoldMessenger.of(context).showSnackBar(
+                        const SnackBar(
+                          content: Text('Údaje o vozidle byly doplněny.'),
+                          backgroundColor: Colors.green,
                         ),
+                      );
+                    },
+                  ),
+                )
+                .toList(),
+          ),
+        ],
+      ],
+    ),
+  );
+
+  Widget _buildVozidloStep(bool isDark) => SingleChildScrollView(
+    padding: const EdgeInsets.all(30),
+    child: Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        const Text(
+          'Údaje o vozidle',
+          style: TextStyle(fontSize: 32, fontWeight: FontWeight.bold),
+        ),
+        const SizedBox(height: 40),
+        _buildInput(
+          'Číslo zakázky *',
+          Icons.onetwothree,
+          _zakazkaController,
+          isDark,
+          caps: true,
+        ),
+        const SizedBox(height: 20),
+        _buildInput(
+          'SPZ vozidla *',
+          Icons.abc,
+          _spzController,
+          isDark,
+          caps: true,
+        ),
+        const SizedBox(height: 20),
+        _buildInput('VIN kód', Icons.abc, _vinController, isDark, caps: true),
+        const SizedBox(height: 20),
+        _buildInput(
+          'Značka (např. Škoda)',
+          Icons.directions_car,
+          _znackaController,
+          isDark,
+        ),
+        const SizedBox(height: 20),
+        _buildInput(
+          'Model (např. Octavia)',
+          Icons.directions_car_filled,
+          _modelController,
+          isDark,
+        ),
+        const SizedBox(height: 20),
+        _buildInput(
+          'Rok výroby',
+          Icons.calendar_today,
+          _rokVyrobyController,
+          isDark,
+          numbersOnly: true,
+        ),
+        const SizedBox(height: 20),
+        _buildInput(
+          'Motorizace (např. 2.0 TDI)',
+          Icons.settings,
+          _motorizaceController,
+          isDark,
+        ),
+        const SizedBox(height: 20),
+        _buildDropdown(
+          'Typ paliva',
+          Icons.local_gas_station,
+          _vybranePalivo,
+          _moznostiPaliva,
+          (v) => setState(() => _vybranePalivo = v!),
+          isDark,
+        ),
+        const SizedBox(height: 20),
+        _buildDropdown(
+          'Převodovka',
+          Icons.settings_input_component,
+          _vybranaPrevodovka,
+          _moznostiPrevodovky,
+          (v) => setState(() => _vybranaPrevodovka = v!),
+          isDark,
+        ),
+      ],
+    ),
+  );
+
+  Widget _buildPhotoStep(bool isDark) => Padding(
+    padding: const EdgeInsets.all(30),
+    child: Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        const Text(
+          'Fotodokumentace',
+          style: TextStyle(fontSize: 32, fontWeight: FontWeight.bold),
+        ),
+        const SizedBox(height: 20),
+        const Text(
+          'Vyfoťte sérii fotek, nebo vyberte hromadně z galerie.',
+          style: TextStyle(fontSize: 16, color: Colors.grey),
+        ),
+        const SizedBox(height: 20),
+        Expanded(
+          child: ListView.separated(
+            itemCount: photoCategories.length,
+            separatorBuilder: (context, index) => const SizedBox(height: 15),
+            itemBuilder: (context, index) {
+              final key = photoCategories.keys.elementAt(index);
+              final category = photoCategories[key];
+              final label = category['label'] as String;
+              final icon = category['icon'] as IconData;
+              final takenPhotos = _categoryImages[key] ?? [];
+
+              return Card(
+                color: isDark ? const Color(0xFF1A1A1A) : Colors.white,
+                shape: RoundedRectangleBorder(
+                  borderRadius: BorderRadius.circular(20),
+                  side: BorderSide(
+                    color: takenPhotos.isNotEmpty
+                        ? Colors.green.withOpacity(0.5)
+                        : Colors.grey.withOpacity(0.2),
+                    width: takenPhotos.isNotEmpty ? 2 : 1,
+                  ),
+                ),
+                child: Padding(
+                  padding: const EdgeInsets.all(15),
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      Row(
+                        children: [
+                          Icon(icon, color: Colors.blue, size: 30),
+                          const SizedBox(width: 15),
+                          Expanded(
+                            child: Text(
+                              label,
+                              style: const TextStyle(
+                                fontSize: 16,
+                                fontWeight: FontWeight.bold,
+                              ),
+                            ),
+                          ),
+                          IconButton(
+                            onPressed: () => _pickFromGallery(key),
+                            icon: const Icon(
+                              Icons.photo_library_rounded,
+                              color: Colors.blueGrey,
+                            ),
+                            tooltip: 'Přidat z galerie',
+                          ),
+                          IconButton(
+                            onPressed: () => _takePhotoSeries(key),
+                            icon: const Icon(
+                              Icons.add_a_photo_rounded,
+                              color: Colors.blue,
+                            ),
+                            tooltip: 'Sériové focení',
+                          ),
+                        ],
                       ),
-                      child: Text(
-                        _currentPage == _totalPages - 1
-                            ? 'DOKONČIT A ODESLAT'
-                            : 'DALŠÍ KROK',
-                        style: const TextStyle(fontWeight: FontWeight.bold),
-                      ),
+                      if (takenPhotos.isNotEmpty) ...[
+                        const SizedBox(height: 10),
+                        SizedBox(
+                          height: 80,
+                          child: ListView.builder(
+                            scrollDirection: Axis.horizontal,
+                            itemCount: takenPhotos.length,
+                            itemBuilder: (context, photoIndex) {
+                              final photo = takenPhotos[photoIndex];
+                              return Stack(
+                                children: [
+                                  Container(
+                                    margin: const EdgeInsets.only(right: 10),
+                                    child: ClipRRect(
+                                      borderRadius: BorderRadius.circular(10),
+                                      child: kIsWeb
+                                          ? Image.network(
+                                              photo.path,
+                                              width: 80,
+                                              height: 80,
+                                              fit: BoxFit.cover,
+                                            )
+                                          : Image.file(
+                                              File(photo.path),
+                                              width: 80,
+                                              height: 80,
+                                              fit: BoxFit.cover,
+                                            ),
+                                    ),
+                                  ),
+                                  Positioned(
+                                    top: 4,
+                                    right: 14,
+                                    child: GestureDetector(
+                                      onTap: () => setState(
+                                        () => _categoryImages[key]!.removeAt(
+                                          photoIndex,
+                                        ),
+                                      ),
+                                      child: const CircleAvatar(
+                                        radius: 10,
+                                        backgroundColor: Colors.white,
+                                        child: Icon(
+                                          Icons.close,
+                                          size: 14,
+                                          color: Colors.red,
+                                        ),
+                                      ),
+                                    ),
+                                  ),
+                                ],
+                              );
+                            },
+                          ),
+                        ),
+                      ],
+                    ],
+                  ),
+                ),
+              );
+            },
+          ),
+        ),
+      ],
+    ),
+  );
+
+  Widget _buildCheckStep(bool isDark) => SingleChildScrollView(
+    padding: const EdgeInsets.all(30),
+    child: Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        const Text(
+          'Stav vozidla',
+          style: TextStyle(fontSize: 32, fontWeight: FontWeight.bold),
+        ),
+        const SizedBox(height: 30),
+
+        _buildInput(
+          'Stav tachometru (km)',
+          Icons.speed,
+          _tachometrController,
+          isDark,
+          numbersOnly: true,
+        ),
+        const SizedBox(height: 25),
+
+        Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            Text(
+              'Stav paliva v nádrži (${_stavNadrze.toInt()} %)',
+              style: const TextStyle(
+                fontWeight: FontWeight.bold,
+                color: Colors.grey,
+              ),
+            ),
+            const SizedBox(height: 5),
+            Container(
+              padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 5),
+              decoration: BoxDecoration(
+                color: isDark ? const Color(0xFF1E1E1E) : Colors.white,
+                borderRadius: BorderRadius.circular(15),
+                boxShadow: [
+                  if (!isDark)
+                    BoxShadow(
+                      color: Colors.black.withOpacity(0.05),
+                      blurRadius: 10,
+                      offset: const Offset(0, 4),
+                    ),
+                ],
+                border: Border.all(
+                  color: isDark ? Colors.grey[800]! : Colors.grey[300]!,
+                  width: 1,
+                ),
+              ),
+              child: Row(
+                children: [
+                  Icon(
+                    Icons.local_gas_station,
+                    color: _stavNadrze < 20 ? Colors.red : Colors.blue,
+                  ),
+                  Expanded(
+                    child: Slider(
+                      value: _stavNadrze,
+                      min: 0,
+                      max: 100,
+                      divisions: 4,
+                      label: '${_stavNadrze.toInt()} %',
+                      activeColor: Colors.blue,
+                      onChanged: (val) => setState(() => _stavNadrze = val),
                     ),
                   ),
                 ],
               ),
-            ],
+            ),
+          ],
+        ),
+        const SizedBox(height: 30),
+        const Divider(),
+        const SizedBox(height: 20),
+
+        Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            const Text(
+              'Zjištěné poškození (lze vybrat více)',
+              style: TextStyle(fontWeight: FontWeight.bold, color: Colors.grey),
+            ),
+            const SizedBox(height: 8),
+            Container(
+              width: double.infinity,
+              padding: const EdgeInsets.all(15),
+              decoration: BoxDecoration(
+                color: isDark ? const Color(0xFF1E1E1E) : Colors.white,
+                borderRadius: BorderRadius.circular(15),
+                boxShadow: [
+                  if (!isDark)
+                    BoxShadow(
+                      color: Colors.black.withOpacity(0.05),
+                      blurRadius: 10,
+                      offset: const Offset(0, 4),
+                    ),
+                ],
+                border: Border.all(
+                  color: isDark ? Colors.grey[800]! : Colors.grey[300]!,
+                  width: 1,
+                ),
+              ),
+              child: Row(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  const Padding(
+                    padding: EdgeInsets.only(top: 4, right: 15),
+                    child: Icon(Icons.car_crash, color: Colors.blue),
+                  ),
+                  Expanded(
+                    child: Wrap(
+                      spacing: 8.0,
+                      runSpacing: 8.0,
+                      children: _poskozeniMoznosti.map((String value) {
+                        final isSelected = _vybranePoskozeni.contains(value);
+                        return FilterChip(
+                          label: Text(value),
+                          selected: isSelected,
+                          onSelected: (bool selected) {
+                            setState(() {
+                              if (value == 'Žádné') {
+                                if (selected) {
+                                  _vybranePoskozeni.clear();
+                                  _vybranePoskozeni.add('Žádné');
+                                } else {
+                                  _vybranePoskozeni.remove('Žádné');
+                                }
+                              } else {
+                                if (selected) {
+                                  _vybranePoskozeni.remove('Žádné');
+                                  _vybranePoskozeni.add(value);
+                                } else {
+                                  _vybranePoskozeni.remove(value);
+                                }
+                              }
+                            });
+                          },
+                          selectedColor: Colors.blue.withOpacity(0.2),
+                          checkmarkColor: Colors.blue,
+                          shape: RoundedRectangleBorder(
+                            borderRadius: BorderRadius.circular(10),
+                            side: BorderSide(
+                              color: isSelected
+                                  ? Colors.blue
+                                  : (isDark
+                                        ? Colors.grey[800]!
+                                        : Colors.grey[300]!),
+                            ),
+                          ),
+                          backgroundColor: isDark
+                              ? const Color(0xFF2C2C2C)
+                              : Colors.grey[50],
+                        );
+                      }).toList(),
+                    ),
+                  ),
+                ],
+              ),
+            ),
+          ],
+        ),
+        const SizedBox(height: 25),
+
+        Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            const Text(
+              'Platnost STK',
+              style: TextStyle(fontWeight: FontWeight.bold, color: Colors.grey),
+            ),
+            const SizedBox(height: 8),
+            Row(
+              children: [
+                Expanded(
+                  child: _buildHalfInput(
+                    'Měsíc',
+                    Icons.calendar_month,
+                    _stkMesicController,
+                    isDark,
+                    TextInputType.number,
+                  ),
+                ),
+                const SizedBox(width: 15),
+                Expanded(
+                  child: _buildHalfInput(
+                    'Rok',
+                    Icons.edit_calendar,
+                    _stkRokController,
+                    isDark,
+                    TextInputType.number,
+                  ),
+                ),
+              ],
+            ),
+          ],
+        ),
+        const SizedBox(height: 25),
+
+        Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            const Text(
+              'Hloubka dezénu pneu (v mm)',
+              style: TextStyle(fontWeight: FontWeight.bold, color: Colors.grey),
+            ),
+            const SizedBox(height: 8),
+            Row(
+              children: [
+                Expanded(
+                  child: _buildHalfInput(
+                    'Levá př.',
+                    Icons.tire_repair,
+                    _pneuLPController,
+                    isDark,
+                    const TextInputType.numberWithOptions(decimal: true),
+                  ),
+                ),
+                const SizedBox(width: 15),
+                Expanded(
+                  child: _buildHalfInput(
+                    'Pravá př.',
+                    Icons.tire_repair,
+                    _pneuPPController,
+                    isDark,
+                    const TextInputType.numberWithOptions(decimal: true),
+                  ),
+                ),
+              ],
+            ),
+            const SizedBox(height: 15),
+            Row(
+              children: [
+                Expanded(
+                  child: _buildHalfInput(
+                    'Levá zad.',
+                    Icons.tire_repair,
+                    _pneuLZController,
+                    isDark,
+                    const TextInputType.numberWithOptions(decimal: true),
+                  ),
+                ),
+                const SizedBox(width: 15),
+                Expanded(
+                  child: _buildHalfInput(
+                    'Pravá zad.',
+                    Icons.tire_repair,
+                    _pneuPZController,
+                    isDark,
+                    const TextInputType.numberWithOptions(decimal: true),
+                  ),
+                ),
+              ],
+            ),
+          ],
+        ),
+        const SizedBox(height: 30),
+
+        Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            const Text(
+              'Dodatečné poznámky',
+              style: TextStyle(fontWeight: FontWeight.bold, color: Colors.grey),
+            ),
+            const SizedBox(height: 8),
+            Container(
+              decoration: BoxDecoration(
+                boxShadow: [
+                  if (!isDark)
+                    BoxShadow(
+                      color: Colors.black.withOpacity(0.05),
+                      blurRadius: 10,
+                      offset: const Offset(0, 4),
+                    ),
+                ],
+                borderRadius: BorderRadius.circular(15),
+              ),
+              child: TextField(
+                controller: _poznamkyController,
+                maxLines: 3,
+                decoration: InputDecoration(
+                  hintText: 'Poznámky...',
+                  prefixIcon: const Padding(
+                    padding: EdgeInsets.only(bottom: 40),
+                    child: Icon(Icons.notes, color: Colors.blue),
+                  ),
+                  filled: true,
+                  fillColor: isDark ? const Color(0xFF1E1E1E) : Colors.white,
+                  enabledBorder: OutlineInputBorder(
+                    borderRadius: BorderRadius.circular(15),
+                    borderSide: BorderSide(
+                      color: isDark ? Colors.grey[800]! : Colors.grey[300]!,
+                      width: 1,
+                    ),
+                  ),
+                  focusedBorder: OutlineInputBorder(
+                    borderRadius: BorderRadius.circular(15),
+                    borderSide: const BorderSide(color: Colors.blue, width: 2),
+                  ),
+                  border: OutlineInputBorder(
+                    borderRadius: BorderRadius.circular(15),
+                    borderSide: BorderSide(
+                      color: isDark ? Colors.grey[800]! : Colors.grey[300]!,
+                      width: 1,
+                    ),
+                  ),
+                ),
+              ),
+            ),
+          ],
+        ),
+      ],
+    ),
+  );
+
+  Widget _buildPodpisStep(bool isDark) => SingleChildScrollView(
+    padding: const EdgeInsets.all(30),
+    child: Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        const Text(
+          'Shrnutí a podpis',
+          style: TextStyle(fontSize: 32, fontWeight: FontWeight.bold),
+        ),
+        const SizedBox(height: 20),
+        const Text(
+          'Zákazník svým podpisem stvrzuje správnost výše uvedených údajů a souhlasí se stavem vozidla při převzetí do servisu.',
+          style: TextStyle(color: Colors.grey, fontSize: 16),
+        ),
+        const SizedBox(height: 30),
+
+        Container(
+          decoration: BoxDecoration(
+            border: Border.all(color: Colors.blue, width: 2),
+            borderRadius: BorderRadius.circular(15),
+            color: Colors.white,
+          ),
+          child: ClipRRect(
+            borderRadius: BorderRadius.circular(13),
+            child: Signature(
+              controller: _signatureController,
+              height: 250,
+              backgroundColor: Colors.white,
+            ),
           ),
         ),
-      );
+        const SizedBox(height: 10),
+        Align(
+          alignment: Alignment.centerRight,
+          child: TextButton.icon(
+            onPressed: () => _signatureController.clear(),
+            icon: const Icon(Icons.clear, color: Colors.red),
+            label: const Text(
+              'Smazat podpis',
+              style: TextStyle(color: Colors.red),
+            ),
+          ),
+        ),
+      ],
+    ),
+  );
+
+  Widget _buildBottomPanel(bool isDark) => Container(
+    padding: const EdgeInsets.fromLTRB(30, 20, 30, 30),
+    decoration: BoxDecoration(
+      color: isDark ? const Color(0xFF121212) : Colors.white,
+      boxShadow: [
+        BoxShadow(
+          color: Colors.black.withOpacity(0.05),
+          blurRadius: 10,
+          offset: const Offset(0, -5),
+        ),
+      ],
+    ),
+    child: SafeArea(
+      child: Column(
+        mainAxisSize: MainAxisSize.min,
+        children: [
+          Row(
+            children: List.generate(
+              _totalPages,
+              (index) => Expanded(
+                child: Container(
+                  height: 4,
+                  margin: const EdgeInsets.symmetric(horizontal: 4),
+                  decoration: BoxDecoration(
+                    color: index <= _currentPage
+                        ? Colors.blue
+                        : Colors.grey[300],
+                    borderRadius: BorderRadius.circular(2),
+                  ),
+                ),
+              ),
+            ),
+          ),
+          const SizedBox(height: 20),
+          Row(
+            children: [
+              if (_currentPage > 0)
+                IconButton.filledTonal(
+                  onPressed: _moveBack,
+                  icon: const Icon(Icons.arrow_back_ios_new_rounded),
+                  padding: const EdgeInsets.all(15),
+                ),
+              if (_currentPage > 0) const SizedBox(width: 15),
+              Expanded(
+                child: ElevatedButton(
+                  onPressed: _moveNext,
+                  style: ElevatedButton.styleFrom(
+                    backgroundColor: Colors.blue,
+                    foregroundColor: Colors.white,
+                    padding: const EdgeInsets.symmetric(vertical: 18),
+                    shape: RoundedRectangleBorder(
+                      borderRadius: BorderRadius.circular(18),
+                    ),
+                  ),
+                  child: Text(
+                    _currentPage == _totalPages - 1
+                        ? 'DOKONČIT A ODESLAT'
+                        : 'DALŠÍ KROK',
+                    style: const TextStyle(fontWeight: FontWeight.bold),
+                  ),
+                ),
+              ),
+            ],
+          ),
+        ],
+      ),
+    ),
+  );
 
   Widget _buildInput(
     String label,
@@ -1688,65 +2076,66 @@ class _MainWizardPageState extends State<MainWizardPage> {
     bool isDark, {
     bool caps = false,
     bool numbersOnly = false,
-    Widget? customSuffix, 
-  }) =>
-      Column(
-        crossAxisAlignment: CrossAxisAlignment.start,
-        children: [
-          Text(
-            label,
-            style: const TextStyle(
-                fontWeight: FontWeight.bold, color: Colors.grey),
-          ),
-          const SizedBox(height: 8),
-          Container(
-            decoration: BoxDecoration(
-              boxShadow: [
-                if (!isDark)
-                  BoxShadow(
-                    color: Colors.black.withOpacity(0.05),
-                    blurRadius: 10,
-                    offset: const Offset(0, 4),
-                  ),
-              ],
-              borderRadius: BorderRadius.circular(15),
-            ),
-            child: TextField(
-              controller: controller,
-              textCapitalization: caps
-                  ? TextCapitalization.characters
-                  : TextCapitalization.none,
-              keyboardType:
-                  numbersOnly ? TextInputType.number : TextInputType.text,
-              decoration: InputDecoration(
-                prefixIcon: Icon(icon, color: Colors.blue),
-                suffixIcon: customSuffix ?? IconButton(
+    Widget? customSuffix,
+  }) => Column(
+    crossAxisAlignment: CrossAxisAlignment.start,
+    children: [
+      Text(
+        label,
+        style: const TextStyle(fontWeight: FontWeight.bold, color: Colors.grey),
+      ),
+      const SizedBox(height: 8),
+      Container(
+        decoration: BoxDecoration(
+          boxShadow: [
+            if (!isDark)
+              BoxShadow(
+                color: Colors.black.withOpacity(0.05),
+                blurRadius: 10,
+                offset: const Offset(0, 4),
+              ),
+          ],
+          borderRadius: BorderRadius.circular(15),
+        ),
+        child: TextField(
+          controller: controller,
+          textCapitalization: caps
+              ? TextCapitalization.characters
+              : TextCapitalization.none,
+          keyboardType: numbersOnly ? TextInputType.number : TextInputType.text,
+          decoration: InputDecoration(
+            prefixIcon: Icon(icon, color: Colors.blue),
+            suffixIcon:
+                customSuffix ??
+                IconButton(
                   icon: const Icon(Icons.document_scanner),
                   onPressed: () => _scanText(controller, numbersOnly),
                 ),
-                filled: true,
-                fillColor: isDark ? const Color(0xFF1E1E1E) : Colors.white,
-                enabledBorder: OutlineInputBorder(
-                  borderRadius: BorderRadius.circular(15),
-                  borderSide: BorderSide(
-                      color: isDark ? Colors.grey[800]! : Colors.grey[300]!,
-                      width: 1),
-                ),
-                focusedBorder: OutlineInputBorder(
-                  borderRadius: BorderRadius.circular(15),
-                  borderSide: const BorderSide(color: Colors.blue, width: 2),
-                ),
-                border: OutlineInputBorder(
-                  borderRadius: BorderRadius.circular(15),
-                  borderSide: BorderSide(
-                      color: isDark ? Colors.grey[800]! : Colors.grey[300]!,
-                      width: 1),
-                ),
+            filled: true,
+            fillColor: isDark ? const Color(0xFF1E1E1E) : Colors.white,
+            enabledBorder: OutlineInputBorder(
+              borderRadius: BorderRadius.circular(15),
+              borderSide: BorderSide(
+                color: isDark ? Colors.grey[800]! : Colors.grey[300]!,
+                width: 1,
+              ),
+            ),
+            focusedBorder: OutlineInputBorder(
+              borderRadius: BorderRadius.circular(15),
+              borderSide: const BorderSide(color: Colors.blue, width: 2),
+            ),
+            border: OutlineInputBorder(
+              borderRadius: BorderRadius.circular(15),
+              borderSide: BorderSide(
+                color: isDark ? Colors.grey[800]! : Colors.grey[300]!,
+                width: 1,
               ),
             ),
           ),
-        ],
-      );
+        ),
+      ),
+    ],
+  );
 
   Widget _buildDropdown(
     String label,
@@ -1759,26 +2148,54 @@ class _MainWizardPageState extends State<MainWizardPage> {
     return Column(
       crossAxisAlignment: CrossAxisAlignment.start,
       children: [
-        Text(label, style: const TextStyle(fontWeight: FontWeight.bold, color: Colors.grey)),
+        Text(
+          label,
+          style: const TextStyle(
+            fontWeight: FontWeight.bold,
+            color: Colors.grey,
+          ),
+        ),
         const SizedBox(height: 8),
         Container(
           decoration: BoxDecoration(
             boxShadow: [
-              if (!isDark) BoxShadow(color: Colors.black.withOpacity(0.05), blurRadius: 10, offset: const Offset(0, 4)),
+              if (!isDark)
+                BoxShadow(
+                  color: Colors.black.withOpacity(0.05),
+                  blurRadius: 10,
+                  offset: const Offset(0, 4),
+                ),
             ],
             borderRadius: BorderRadius.circular(15),
           ),
           child: DropdownButtonFormField<String>(
             value: value,
-            items: items.map((e) => DropdownMenuItem(value: e, child: Text(e))).toList(),
+            items: items
+                .map((e) => DropdownMenuItem(value: e, child: Text(e)))
+                .toList(),
             onChanged: onChanged,
             decoration: InputDecoration(
               prefixIcon: Icon(icon, color: Colors.blue),
               filled: true,
               fillColor: isDark ? const Color(0xFF1E1E1E) : Colors.white,
-              enabledBorder: OutlineInputBorder(borderRadius: BorderRadius.circular(15), borderSide: BorderSide(color: isDark ? Colors.grey[800]! : Colors.grey[300]!, width: 1)),
-              focusedBorder: OutlineInputBorder(borderRadius: BorderRadius.circular(15), borderSide: const BorderSide(color: Colors.blue, width: 2)),
-              border: OutlineInputBorder(borderRadius: BorderRadius.circular(15), borderSide: BorderSide(color: isDark ? Colors.grey[800]! : Colors.grey[300]!, width: 1)),
+              enabledBorder: OutlineInputBorder(
+                borderRadius: BorderRadius.circular(15),
+                borderSide: BorderSide(
+                  color: isDark ? Colors.grey[800]! : Colors.grey[300]!,
+                  width: 1,
+                ),
+              ),
+              focusedBorder: OutlineInputBorder(
+                borderRadius: BorderRadius.circular(15),
+                borderSide: const BorderSide(color: Colors.blue, width: 2),
+              ),
+              border: OutlineInputBorder(
+                borderRadius: BorderRadius.circular(15),
+                borderSide: BorderSide(
+                  color: isDark ? Colors.grey[800]! : Colors.grey[300]!,
+                  width: 1,
+                ),
+              ),
             ),
           ),
         ),
@@ -1816,8 +2233,9 @@ class _MainWizardPageState extends State<MainWizardPage> {
           enabledBorder: OutlineInputBorder(
             borderRadius: BorderRadius.circular(15),
             borderSide: BorderSide(
-                color: isDark ? Colors.grey[800]! : Colors.grey[300]!,
-                width: 1),
+              color: isDark ? Colors.grey[800]! : Colors.grey[300]!,
+              width: 1,
+            ),
           ),
           focusedBorder: OutlineInputBorder(
             borderRadius: BorderRadius.circular(15),
@@ -1826,8 +2244,9 @@ class _MainWizardPageState extends State<MainWizardPage> {
           border: OutlineInputBorder(
             borderRadius: BorderRadius.circular(15),
             borderSide: BorderSide(
-                color: isDark ? Colors.grey[800]! : Colors.grey[300]!,
-                width: 1),
+              color: isDark ? Colors.grey[800]! : Colors.grey[300]!,
+              width: 1,
+            ),
           ),
           contentPadding: const EdgeInsets.symmetric(vertical: 15),
         ),
@@ -1863,34 +2282,58 @@ class _VyberZakaznikaSheetState extends State<_VyberZakaznikaSheet> {
       padding: const EdgeInsets.all(20),
       child: Column(
         children: [
-          Container(width: 40, height: 4, decoration: BoxDecoration(color: Colors.grey[300], borderRadius: BorderRadius.circular(10))),
+          Container(
+            width: 40,
+            height: 4,
+            decoration: BoxDecoration(
+              color: Colors.grey[300],
+              borderRadius: BorderRadius.circular(10),
+            ),
+          ),
           const SizedBox(height: 20),
-          const Text('Vybrat existujícího zákazníka', style: TextStyle(fontSize: 20, fontWeight: FontWeight.bold)),
+          const Text(
+            'Vybrat existujícího zákazníka',
+            style: TextStyle(fontSize: 20, fontWeight: FontWeight.bold),
+          ),
           const SizedBox(height: 15),
           TextField(
-            onChanged: (val) => setState(() => _hledanyText = val.toLowerCase()),
+            onChanged: (val) =>
+                setState(() => _hledanyText = val.toLowerCase()),
             decoration: InputDecoration(
               hintText: 'Hledat podle jména, IČO, telefonu...',
               prefixIcon: const Icon(Icons.search),
               filled: true,
-              border: OutlineInputBorder(borderRadius: BorderRadius.circular(15), borderSide: BorderSide.none),
+              border: OutlineInputBorder(
+                borderRadius: BorderRadius.circular(15),
+                borderSide: BorderSide.none,
+              ),
             ),
           ),
           const SizedBox(height: 15),
           Expanded(
             child: StreamBuilder<QuerySnapshot>(
-              stream: FirebaseFirestore.instance.collection('zakaznici').where('servis_id', isEqualTo: user?.uid).snapshots(),
+              stream: FirebaseFirestore.instance
+                  .collection('zakaznici')
+                  .where('servis_id', isEqualTo: user?.uid)
+                  .snapshots(),
               builder: (context, snapshot) {
-                if (!snapshot.hasData) return const Center(child: CircularProgressIndicator());
-                
-                final zakaznici = snapshot.data!.docs.map((d) => d.data() as Map<String, dynamic>).where((z) {
-                  final jmeno = (z['jmeno'] ?? '').toString().toLowerCase();
-                  final ico = (z['ico'] ?? '').toString().toLowerCase();
-                  final tel = (z['telefon'] ?? '').toString().toLowerCase();
-                  return jmeno.contains(_hledanyText) || ico.contains(_hledanyText) || tel.contains(_hledanyText);
-                }).toList();
+                if (!snapshot.hasData)
+                  return const Center(child: CircularProgressIndicator());
 
-                if (zakaznici.isEmpty) return const Center(child: Text('Žádný zákazník nenalezen.'));
+                final zakaznici = snapshot.data!.docs
+                    .map((d) => d.data() as Map<String, dynamic>)
+                    .where((z) {
+                      final jmeno = (z['jmeno'] ?? '').toString().toLowerCase();
+                      final ico = (z['ico'] ?? '').toString().toLowerCase();
+                      final tel = (z['telefon'] ?? '').toString().toLowerCase();
+                      return jmeno.contains(_hledanyText) ||
+                          ico.contains(_hledanyText) ||
+                          tel.contains(_hledanyText);
+                    })
+                    .toList();
+
+                if (zakaznici.isEmpty)
+                  return const Center(child: Text('Žádný zákazník nenalezen.'));
 
                 return ListView.separated(
                   itemCount: zakaznici.length,
@@ -1899,8 +2342,13 @@ class _VyberZakaznikaSheetState extends State<_VyberZakaznikaSheet> {
                     final z = zakaznici[index];
                     return ListTile(
                       leading: const CircleAvatar(child: Icon(Icons.person)),
-                      title: Text(z['jmeno'] ?? 'Neznámé jméno', style: const TextStyle(fontWeight: FontWeight.bold)),
-                      subtitle: Text('${z['telefon'] ?? ''} ${z['ico'] != null && z['ico'].toString().isNotEmpty ? '• IČO: ${z['ico']}' : ''}'),
+                      title: Text(
+                        z['jmeno'] ?? 'Neznámé jméno',
+                        style: const TextStyle(fontWeight: FontWeight.bold),
+                      ),
+                      subtitle: Text(
+                        '${z['telefon'] ?? ''} ${z['ico'] != null && z['ico'].toString().isNotEmpty ? '• IČO: ${z['ico']}' : ''}',
+                      ),
                       onTap: () {
                         widget.onVybrano(z);
                         Navigator.pop(context);
@@ -1910,7 +2358,7 @@ class _VyberZakaznikaSheetState extends State<_VyberZakaznikaSheet> {
                 );
               },
             ),
-          )
+          ),
         ],
       ),
     );
@@ -1967,32 +2415,42 @@ class _ServiceProgressPageState extends State<ServiceProgressPage> {
                   boxShadow: [
                     if (!isDark)
                       BoxShadow(
-                          color: Colors.black.withOpacity(0.05),
-                          blurRadius: 10,
-                          offset: const Offset(0, 4)),
+                        color: Colors.black.withOpacity(0.05),
+                        blurRadius: 10,
+                        offset: const Offset(0, 4),
+                      ),
                   ],
                   borderRadius: BorderRadius.circular(15),
                 ),
                 child: TextField(
-                  onChanged: (value) => setState(() => _searchQuery = value.toLowerCase()),
+                  onChanged: (value) =>
+                      setState(() => _searchQuery = value.toLowerCase()),
                   decoration: InputDecoration(
                     hintText: 'Hledat SPZ, VIN nebo číslo...',
                     prefixIcon: const Icon(Icons.search, color: Colors.blue),
                     filled: true,
                     fillColor: isDark ? const Color(0xFF1E1E1E) : Colors.white,
                     enabledBorder: OutlineInputBorder(
-                        borderRadius: BorderRadius.circular(15),
-                        borderSide: BorderSide(
-                            color: isDark ? Colors.grey[800]! : Colors.grey[300]!,
-                            width: 1)),
+                      borderRadius: BorderRadius.circular(15),
+                      borderSide: BorderSide(
+                        color: isDark ? Colors.grey[800]! : Colors.grey[300]!,
+                        width: 1,
+                      ),
+                    ),
                     focusedBorder: OutlineInputBorder(
-                        borderRadius: BorderRadius.circular(15),
-                        borderSide: const BorderSide(color: Colors.blue, width: 2)),
+                      borderRadius: BorderRadius.circular(15),
+                      borderSide: const BorderSide(
+                        color: Colors.blue,
+                        width: 2,
+                      ),
+                    ),
                     border: OutlineInputBorder(
-                        borderRadius: BorderRadius.circular(15),
-                        borderSide: BorderSide(
-                            color: isDark ? Colors.grey[800]! : Colors.grey[300]!,
-                            width: 1)),
+                      borderRadius: BorderRadius.circular(15),
+                      borderSide: BorderSide(
+                        color: isDark ? Colors.grey[800]! : Colors.grey[300]!,
+                        width: 1,
+                      ),
+                    ),
                     contentPadding: const EdgeInsets.symmetric(vertical: 15),
                   ),
                 ),
@@ -2008,21 +2466,29 @@ class _ServiceProgressPageState extends State<ServiceProgressPage> {
                 .orderBy('cas_prijeti', descending: true)
                 .snapshots(),
             builder: (context, snapshot) {
-              if (snapshot.hasError) return Center(child: Text("Chyba databáze: ${snapshot.error}"));
-              if (!snapshot.hasData) return const Center(child: CircularProgressIndicator());
+              if (snapshot.hasError)
+                return Center(child: Text("Chyba databáze: ${snapshot.error}"));
+              if (!snapshot.hasData)
+                return const Center(child: CircularProgressIndicator());
 
               final docs = snapshot.data!.docs.where((doc) {
                 final data = doc.data() as Map<String, dynamic>;
-                
+
                 if (data['stav_zakazky'] == 'Dokončeno') return false;
 
-                final cislo = data['cislo_zakazky']?.toString().toLowerCase() ?? '';
+                final cislo =
+                    data['cislo_zakazky']?.toString().toLowerCase() ?? '';
                 final spz = data['spz']?.toString().toLowerCase() ?? '';
                 final vin = data['vin']?.toString().toLowerCase() ?? '';
-                return cislo.contains(_searchQuery) || spz.contains(_searchQuery) || vin.contains(_searchQuery);
+                return cislo.contains(_searchQuery) ||
+                    spz.contains(_searchQuery) ||
+                    vin.contains(_searchQuery);
               }).toList();
 
-              if (docs.isEmpty) return const Center(child: Text('Žádné aktivní zakázky k zobrazení.'));
+              if (docs.isEmpty)
+                return const Center(
+                  child: Text('Žádné aktivní zakázky k zobrazení.'),
+                );
 
               return ListView.builder(
                 padding: const EdgeInsets.all(20),
@@ -2031,38 +2497,69 @@ class _ServiceProgressPageState extends State<ServiceProgressPage> {
                   final data = docs[index].data() as Map<String, dynamic>;
                   final docId = docs[index].id;
                   final stav = data['stav_zakazky'] ?? 'Přijato';
-                  
+
                   return Card(
                     color: isDark ? const Color(0xFF1E1E1E) : Colors.white,
-                    shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(15), side: BorderSide(color: Colors.blue.withOpacity(0.3))),
+                    shape: RoundedRectangleBorder(
+                      borderRadius: BorderRadius.circular(15),
+                      side: BorderSide(color: Colors.blue.withOpacity(0.3)),
+                    ),
                     child: ListTile(
                       contentPadding: const EdgeInsets.all(15),
                       title: Row(
                         mainAxisAlignment: MainAxisAlignment.spaceBetween,
                         children: [
-                          Text('${data['spz']}', style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 20)),
+                          Text(
+                            '${data['spz']}',
+                            style: const TextStyle(
+                              fontWeight: FontWeight.bold,
+                              fontSize: 20,
+                            ),
+                          ),
                           Container(
-                            padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 4),
+                            padding: const EdgeInsets.symmetric(
+                              horizontal: 10,
+                              vertical: 4,
+                            ),
                             decoration: BoxDecoration(
                               color: getStatusColor(stav).withOpacity(0.1),
                               borderRadius: BorderRadius.circular(10),
                               border: Border.all(color: getStatusColor(stav)),
                             ),
-                            child: Text(stav, style: TextStyle(color: getStatusColor(stav), fontWeight: FontWeight.bold, fontSize: 12)),
-                          )
+                            child: Text(
+                              stav,
+                              style: TextStyle(
+                                color: getStatusColor(stav),
+                                fontWeight: FontWeight.bold,
+                                fontSize: 12,
+                              ),
+                            ),
+                          ),
                         ],
                       ),
                       subtitle: Padding(
                         padding: const EdgeInsets.only(top: 8.0),
                         child: Text(
-                          'Zakázka: ${data['cislo_zakazky']}' + 
-                          (data['znacka'] != null && data['znacka'].toString().isNotEmpty ? '\n${data['znacka']} ${data['model'] ?? ''}' : '') +
-                          '\nČas příjmu: ${_formatDate(data['cas_prijeti'])}',
+                          'Zakázka: ${data['cislo_zakazky']}' +
+                              (data['znacka'] != null &&
+                                      data['znacka'].toString().isNotEmpty
+                                  ? '\n${data['znacka']} ${data['model'] ?? ''}'
+                                  : '') +
+                              '\nČas příjmu: ${_formatDate(data['cas_prijeti'])}',
                         ),
                       ),
                       isThreeLine: true,
                       trailing: const Icon(Icons.arrow_forward_ios, size: 16),
-                      onTap: () => Navigator.push(context, MaterialPageRoute(builder: (context) => ActiveJobScreen(documentId: docId, zakazkaId: data['cislo_zakazky'].toString(), spz: data['spz'].toString()))),
+                      onTap: () => Navigator.push(
+                        context,
+                        MaterialPageRoute(
+                          builder: (context) => ActiveJobScreen(
+                            documentId: docId,
+                            zakazkaId: data['cislo_zakazky'].toString(),
+                            spz: data['spz'].toString(),
+                          ),
+                        ),
+                      ),
                     ),
                   );
                 },
@@ -2084,7 +2581,12 @@ class ActiveJobScreen extends StatelessWidget {
   final String zakazkaId;
   final String spz;
 
-  const ActiveJobScreen({super.key, required this.documentId, required this.zakazkaId, required this.spz});
+  const ActiveJobScreen({
+    super.key,
+    required this.documentId,
+    required this.zakazkaId,
+    required this.spz,
+  });
 
   String _formatDate(dynamic timestamp) {
     if (timestamp == null) return "Zpracovává se...";
@@ -2097,41 +2599,69 @@ class ActiveJobScreen extends StatelessWidget {
       context: context,
       isScrollControlled: true,
       backgroundColor: Colors.transparent,
-      builder: (context) => _AddWorkSheet(documentId: documentId, zakazkaId: zakazkaId),
+      builder: (context) =>
+          _AddWorkSheet(documentId: documentId, zakazkaId: zakazkaId),
     );
   }
 
-  Future<void> _deleteWork(BuildContext context, Map<String, dynamic> workItem) async {
+  Future<void> _deleteWork(
+    BuildContext context,
+    Map<String, dynamic> workItem,
+  ) async {
     bool? confirm = await showDialog<bool>(
       context: context,
       builder: (context) => AlertDialog(
         title: const Text('Smazat úkon?'),
-        content: const Text('Opravdu chcete tento záznam o práci odstranit? Tato akce je nevratná.'),
+        content: const Text(
+          'Opravdu chcete tento záznam o práci odstranit? Tato akce je nevratná.',
+        ),
         actions: [
-          TextButton(onPressed: () => Navigator.pop(context, false), child: const Text('ZRUŠIT')),
-          TextButton(onPressed: () => Navigator.pop(context, true), child: const Text('SMAZAT', style: TextStyle(color: Colors.red))),
+          TextButton(
+            onPressed: () => Navigator.pop(context, false),
+            child: const Text('ZRUŠIT'),
+          ),
+          TextButton(
+            onPressed: () => Navigator.pop(context, true),
+            child: const Text('SMAZAT', style: TextStyle(color: Colors.red)),
+          ),
         ],
       ),
     );
 
     if (confirm == true) {
-      await FirebaseFirestore.instance.collection('zakazky').doc(documentId).update({
-        'provedene_prace': FieldValue.arrayRemove([workItem])
-      });
+      await FirebaseFirestore.instance
+          .collection('zakazky')
+          .doc(documentId)
+          .update({
+            'provedene_prace': FieldValue.arrayRemove([workItem]),
+          });
     }
   }
 
   Future<void> _zmenitStav(BuildContext context, String novyStav) async {
-    await FirebaseFirestore.instance.collection('zakazky').doc(documentId).update({
-      'stav_zakazky': novyStav
-    });
+    await FirebaseFirestore.instance
+        .collection('zakazky')
+        .doc(documentId)
+        .update({'stav_zakazky': novyStav});
     if (novyStav == 'Dokončeno') {
-      Navigator.pop(context); 
-      ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('Zakázka přesunuta do Historie.'), backgroundColor: Colors.green));
+      Navigator.pop(context);
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(
+          content: Text('Zakázka přesunuta do Historie.'),
+          backgroundColor: Colors.green,
+        ),
+      );
     }
   }
 
-  pw.Widget _buildCompactRow(String label1, String value1, String label2, String value2, pw.Font fontReg, pw.Font fontBld) {
+  pw.Widget _buildCompactRow(
+    String label1,
+    String value1,
+    String label2,
+    String value2,
+    pw.Font fontReg,
+    pw.Font fontBld,
+  ) {
     return pw.Padding(
       padding: const pw.EdgeInsets.only(bottom: 4),
       child: pw.Row(
@@ -2140,10 +2670,22 @@ class ActiveJobScreen extends StatelessWidget {
             child: pw.Row(
               crossAxisAlignment: pw.CrossAxisAlignment.start,
               children: [
-                pw.Text(label1, style: pw.TextStyle(font: fontReg, fontSize: 10, color: PdfColors.grey700)),
+                pw.Text(
+                  label1,
+                  style: pw.TextStyle(
+                    font: fontReg,
+                    fontSize: 10,
+                    color: PdfColors.grey700,
+                  ),
+                ),
                 pw.SizedBox(width: 4),
-                pw.Expanded(child: pw.Text(value1, style: pw.TextStyle(font: fontBld, fontSize: 11))),
-              ]
+                pw.Expanded(
+                  child: pw.Text(
+                    value1,
+                    style: pw.TextStyle(font: fontBld, fontSize: 11),
+                  ),
+                ),
+              ],
             ),
           ),
           if (label2.isNotEmpty)
@@ -2151,16 +2693,28 @@ class ActiveJobScreen extends StatelessWidget {
               child: pw.Row(
                 crossAxisAlignment: pw.CrossAxisAlignment.start,
                 children: [
-                  pw.Text(label2, style: pw.TextStyle(font: fontReg, fontSize: 10, color: PdfColors.grey700)),
+                  pw.Text(
+                    label2,
+                    style: pw.TextStyle(
+                      font: fontReg,
+                      fontSize: 10,
+                      color: PdfColors.grey700,
+                    ),
+                  ),
                   pw.SizedBox(width: 4),
-                  pw.Expanded(child: pw.Text(value2, style: pw.TextStyle(font: fontBld, fontSize: 11))),
-                ]
+                  pw.Expanded(
+                    child: pw.Text(
+                      value2,
+                      style: pw.TextStyle(font: fontBld, fontSize: 11),
+                    ),
+                  ),
+                ],
               ),
             )
           else
             pw.Expanded(child: pw.SizedBox()),
-        ]
-      )
+        ],
+      ),
     );
   }
 
@@ -2173,13 +2727,30 @@ class ActiveJobScreen extends StatelessWidget {
   ) async {
     ScaffoldMessenger.of(context).showSnackBar(
       const SnackBar(
-        content: Text('Generuji PDF protokol (po vygenerování vyberte E-mail k odeslání)...'),
+        content: Text(
+          'Generuji PDF protokol (po vygenerování vyberte E-mail k odeslání)...',
+        ),
         duration: Duration(seconds: 2),
       ),
     );
 
+    // --- Načtení hlavičky servisu z nastavení ---
+    final user = FirebaseAuth.instance.currentUser;
+    String hlavickaNazev = 'VISTO';
+    String hlavickaIco = '';
+    if (user != null) {
+      final nastaveniDoc = await FirebaseFirestore.instance
+          .collection('nastaveni_servisu')
+          .doc(user.uid)
+          .get();
+      if (nastaveniDoc.exists) {
+        hlavickaNazev = nastaveniDoc.data()?['nazev_servisu'] ?? 'VISTO';
+        hlavickaIco = nastaveniDoc.data()?['ico_servisu'] ?? '';
+      }
+    }
+
     final provedenePrace = data['provedene_prace'] as List<dynamic>? ?? [];
-    final podpisUrl = data['podpis_url'] as String?; 
+    final podpisUrl = data['podpis_url'] as String?;
     pw.MemoryImage? podpisImage;
 
     if (podpisUrl != null) {
@@ -2215,147 +2786,428 @@ class ActiveJobScreen extends StatelessWidget {
               child: pw.Row(
                 mainAxisAlignment: pw.MainAxisAlignment.spaceBetween,
                 children: [
-                  pw.Text('VISTO', style: pw.TextStyle(font: fontBold, fontSize: 28, color: PdfColors.blue800)),
-                  pw.Text('Protokol o příjmu a opravě', style: pw.TextStyle(font: fontRegular, fontSize: 20, color: PdfColors.grey600)),
+                  pw.Column(
+                    crossAxisAlignment: pw.CrossAxisAlignment.start,
+                    children: [
+                      pw.Text(
+                        hlavickaNazev,
+                        style: pw.TextStyle(
+                          font: fontBold,
+                          fontSize: 24,
+                          color: PdfColors.blue800,
+                        ),
+                      ),
+                      if (hlavickaIco.isNotEmpty)
+                        pw.Text(
+                          'IČO: $hlavickaIco',
+                          style: pw.TextStyle(
+                            font: fontRegular,
+                            fontSize: 10,
+                            color: PdfColors.grey700,
+                          ),
+                        ),
+                    ],
+                  ),
+                  pw.Text(
+                    'Protokol o příjmu a opravě',
+                    style: pw.TextStyle(
+                      font: fontRegular,
+                      fontSize: 20,
+                      color: PdfColors.grey600,
+                    ),
+                  ),
                 ],
               ),
             ),
             pw.SizedBox(height: 15),
 
-            if (zakaznik.isNotEmpty && (zakaznik['jmeno']?.toString().isNotEmpty == true || zakaznik['ico']?.toString().isNotEmpty == true)) ...[
+            if (zakaznik.isNotEmpty &&
+                (zakaznik['jmeno']?.toString().isNotEmpty == true ||
+                    zakaznik['ico']?.toString().isNotEmpty == true)) ...[
               pw.Container(
                 padding: const pw.EdgeInsets.all(10),
-                decoration: pw.BoxDecoration(color: PdfColors.blue50, borderRadius: pw.BorderRadius.circular(8)),
+                decoration: pw.BoxDecoration(
+                  color: PdfColors.blue50,
+                  borderRadius: pw.BorderRadius.circular(8),
+                ),
                 child: pw.Column(
                   crossAxisAlignment: pw.CrossAxisAlignment.start,
                   children: [
-                    pw.Text('Údaje o zákazníkovi', style: pw.TextStyle(font: fontBold, fontSize: 12, color: PdfColors.blue800)),
+                    pw.Text(
+                      'Údaje o zákazníkovi',
+                      style: pw.TextStyle(
+                        font: fontBold,
+                        fontSize: 12,
+                        color: PdfColors.blue800,
+                      ),
+                    ),
                     pw.SizedBox(height: 5),
-                    _buildCompactRow('Jméno / Firma:', zakaznik['jmeno']?.toString() ?? '-', 'IČO:', zakaznik['ico']?.toString() ?? '-', fontRegular, fontBold),
-                    _buildCompactRow('Adresa:', zakaznik['adresa']?.toString() ?? '-', 'Telefon:', zakaznik['telefon']?.toString() ?? '-', fontRegular, fontBold),
-                    _buildCompactRow('E-mail:', zakaznik['email']?.toString() ?? '-', '', '', fontRegular, fontBold),
-                  ]
-                )
+                    _buildCompactRow(
+                      'Jméno / Firma:',
+                      zakaznik['jmeno']?.toString() ?? '-',
+                      'IČO:',
+                      zakaznik['ico']?.toString() ?? '-',
+                      fontRegular,
+                      fontBold,
+                    ),
+                    _buildCompactRow(
+                      'Adresa:',
+                      zakaznik['adresa']?.toString() ?? '-',
+                      'Telefon:',
+                      zakaznik['telefon']?.toString() ?? '-',
+                      fontRegular,
+                      fontBold,
+                    ),
+                    _buildCompactRow(
+                      'E-mail:',
+                      zakaznik['email']?.toString() ?? '-',
+                      '',
+                      '',
+                      fontRegular,
+                      fontBold,
+                    ),
+                  ],
+                ),
               ),
               pw.SizedBox(height: 15),
             ],
 
             pw.Container(
               padding: const pw.EdgeInsets.all(10),
-              decoration: pw.BoxDecoration(color: PdfColors.grey100, borderRadius: pw.BorderRadius.circular(8)),
+              decoration: pw.BoxDecoration(
+                color: PdfColors.grey100,
+                borderRadius: pw.BorderRadius.circular(8),
+              ),
               child: pw.Column(
                 crossAxisAlignment: pw.CrossAxisAlignment.start,
                 children: [
-                  pw.Text('Údaje o vozidle', style: pw.TextStyle(font: fontBold, fontSize: 12, color: PdfColors.grey800)),
+                  pw.Text(
+                    'Údaje o vozidle',
+                    style: pw.TextStyle(
+                      font: fontBold,
+                      fontSize: 12,
+                      color: PdfColors.grey800,
+                    ),
+                  ),
                   pw.SizedBox(height: 5),
-                  _buildCompactRow('Zakázka č.:', data['cislo_zakazky'].toString(), 'Přijato:', _formatDate(data['cas_prijeti']), fontRegular, fontBold),
-                  _buildCompactRow('SPZ:', data['spz'].toString(), 'VIN:', data['vin']?.toString() ?? '-', fontRegular, fontBold),
-                  _buildCompactRow('Značka:', data['znacka']?.toString() ?? '-', 'Model:', data['model']?.toString() ?? '-', fontRegular, fontBold),
-                  _buildCompactRow('Rok výroby:', data['rok_vyroby']?.toString() ?? '-', 'Motorizace:', data['motorizace']?.toString() ?? '-', fontRegular, fontBold),
-                  _buildCompactRow('Typ paliva:', data['palivo_typ']?.toString() ?? '-', 'Převodovka:', data['prevodovka']?.toString() ?? '-', fontRegular, fontBold),
-                ]
-              )
-            ),
-            pw.SizedBox(height: 20),
-
-            pw.Text('Stav vozidla při příjmu', style: pw.TextStyle(font: fontBold, fontSize: 14)),
-            pw.SizedBox(height: 8),
-            _buildCompactRow('Tachometr:', '${stav['tachometr']?.toString().isNotEmpty == true ? stav['tachometr'] : '-'} km', 'Palivo v nádrži:', '${stav['nadrz']?.toInt() ?? '-'} %', fontRegular, fontBold),
-            _buildCompactRow('Platnost STK:', '${stav['stk_mesic'] ?? '-'} / ${stav['stk_rok'] ?? '-'}', 'Poškození:', poskozeniPdfText, fontRegular, fontBold),
-            pw.SizedBox(height: 15),
-
-            pw.Text('Hloubka dezénu pneu:', style: pw.TextStyle(font: fontBold, fontSize: 12)),
-            pw.SizedBox(height: 5),
-            pw.Container(
-              padding: const pw.EdgeInsets.all(8),
-              decoration: pw.BoxDecoration(border: pw.Border.all(color: PdfColors.grey300), borderRadius: pw.BorderRadius.circular(8)),
-              child: pw.Row(
-                mainAxisAlignment: pw.MainAxisAlignment.spaceAround,
-                children: [
-                  pw.Column(children: [pw.Text('Levá Přední', style: pw.TextStyle(font: fontRegular, color: PdfColors.grey600, fontSize: 9)), pw.Text('${stav['pneu_lp'] ?? '-'} mm', style: pw.TextStyle(font: fontBold, fontSize: 11))]),
-                  pw.Column(children: [pw.Text('Pravá Přední', style: pw.TextStyle(font: fontRegular, color: PdfColors.grey600, fontSize: 9)), pw.Text('${stav['pneu_pp'] ?? '-'} mm', style: pw.TextStyle(font: fontBold, fontSize: 11))]),
-                  pw.Column(children: [pw.Text('Levá Zadní', style: pw.TextStyle(font: fontRegular, color: PdfColors.grey600, fontSize: 9)), pw.Text('${stav['pneu_lz'] ?? '-'} mm', style: pw.TextStyle(font: fontBold, fontSize: 11))]),
-                  pw.Column(children: [pw.Text('Pravá Zadní', style: pw.TextStyle(font: fontRegular, color: PdfColors.grey600, fontSize: 9)), pw.Text('${stav['pneu_pz'] ?? '-'} mm', style: pw.TextStyle(font: fontBold, fontSize: 11))]),
+                  _buildCompactRow(
+                    'Zakázka č.:',
+                    data['cislo_zakazky'].toString(),
+                    'Přijato:',
+                    _formatDate(data['cas_prijeti']),
+                    fontRegular,
+                    fontBold,
+                  ),
+                  _buildCompactRow(
+                    'SPZ:',
+                    data['spz'].toString(),
+                    'VIN:',
+                    data['vin']?.toString() ?? '-',
+                    fontRegular,
+                    fontBold,
+                  ),
+                  _buildCompactRow(
+                    'Značka:',
+                    data['znacka']?.toString() ?? '-',
+                    'Model:',
+                    data['model']?.toString() ?? '-',
+                    fontRegular,
+                    fontBold,
+                  ),
+                  _buildCompactRow(
+                    'Rok výroby:',
+                    data['rok_vyroby']?.toString() ?? '-',
+                    'Motorizace:',
+                    data['motorizace']?.toString() ?? '-',
+                    fontRegular,
+                    fontBold,
+                  ),
+                  _buildCompactRow(
+                    'Typ paliva:',
+                    data['palivo_typ']?.toString() ?? '-',
+                    'Převodovka:',
+                    data['prevodovka']?.toString() ?? '-',
+                    fontRegular,
+                    fontBold,
+                  ),
                 ],
               ),
             ),
             pw.SizedBox(height: 20),
 
-            pw.Text('Fotodokumentace příjmu', style: pw.TextStyle(font: fontBold, fontSize: 14)),
+            pw.Text(
+              'Stav vozidla při příjmu',
+              style: pw.TextStyle(font: fontBold, fontSize: 14),
+            ),
+            pw.SizedBox(height: 8),
+            _buildCompactRow(
+              'Tachometr:',
+              '${stav['tachometr']?.toString().isNotEmpty == true ? stav['tachometr'] : '-'} km',
+              'Palivo v nádrži:',
+              '${stav['nadrz']?.toInt() ?? '-'} %',
+              fontRegular,
+              fontBold,
+            ),
+            _buildCompactRow(
+              'Platnost STK:',
+              '${stav['stk_mesic'] ?? '-'} / ${stav['stk_rok'] ?? '-'}',
+              'Poškození:',
+              poskozeniPdfText,
+              fontRegular,
+              fontBold,
+            ),
+            pw.SizedBox(height: 15),
+
+            pw.Text(
+              'Hloubka dezénu pneu:',
+              style: pw.TextStyle(font: fontBold, fontSize: 12),
+            ),
+            pw.SizedBox(height: 5),
+            pw.Container(
+              padding: const pw.EdgeInsets.all(8),
+              decoration: pw.BoxDecoration(
+                border: pw.Border.all(color: PdfColors.grey300),
+                borderRadius: pw.BorderRadius.circular(8),
+              ),
+              child: pw.Row(
+                mainAxisAlignment: pw.MainAxisAlignment.spaceAround,
+                children: [
+                  pw.Column(
+                    children: [
+                      pw.Text(
+                        'Levá Přední',
+                        style: pw.TextStyle(
+                          font: fontRegular,
+                          color: PdfColors.grey600,
+                          fontSize: 9,
+                        ),
+                      ),
+                      pw.Text(
+                        '${stav['pneu_lp'] ?? '-'} mm',
+                        style: pw.TextStyle(font: fontBold, fontSize: 11),
+                      ),
+                    ],
+                  ),
+                  pw.Column(
+                    children: [
+                      pw.Text(
+                        'Pravá Přední',
+                        style: pw.TextStyle(
+                          font: fontRegular,
+                          color: PdfColors.grey600,
+                          fontSize: 9,
+                        ),
+                      ),
+                      pw.Text(
+                        '${stav['pneu_pp'] ?? '-'} mm',
+                        style: pw.TextStyle(font: fontBold, fontSize: 11),
+                      ),
+                    ],
+                  ),
+                  pw.Column(
+                    children: [
+                      pw.Text(
+                        'Levá Zadní',
+                        style: pw.TextStyle(
+                          font: fontRegular,
+                          color: PdfColors.grey600,
+                          fontSize: 9,
+                        ),
+                      ),
+                      pw.Text(
+                        '${stav['pneu_lz'] ?? '-'} mm',
+                        style: pw.TextStyle(font: fontBold, fontSize: 11),
+                      ),
+                    ],
+                  ),
+                  pw.Column(
+                    children: [
+                      pw.Text(
+                        'Pravá Zadní',
+                        style: pw.TextStyle(
+                          font: fontRegular,
+                          color: PdfColors.grey600,
+                          fontSize: 9,
+                        ),
+                      ),
+                      pw.Text(
+                        '${stav['pneu_pz'] ?? '-'} mm',
+                        style: pw.TextStyle(font: fontBold, fontSize: 11),
+                      ),
+                    ],
+                  ),
+                ],
+              ),
+            ),
+            pw.SizedBox(height: 20),
+
+            pw.Text(
+              'Fotodokumentace příjmu',
+              style: pw.TextStyle(font: fontBold, fontSize: 14),
+            ),
             pw.SizedBox(height: 10),
 
-            if (imageUrlsByCategory.values.every((list) => (list as List).isEmpty))
-              pw.Text('Žádné fotografie nebyly pořízeny.', style: pw.TextStyle(font: fontRegular, fontSize: 11))
+            if (imageUrlsByCategory.values.every(
+              (list) => (list as List).isEmpty,
+            ))
+              pw.Text(
+                'Žádné fotografie nebyly pořízeny.',
+                style: pw.TextStyle(font: fontRegular, fontSize: 11),
+              )
             else
               pw.Wrap(
                 spacing: 15,
                 runSpacing: 5,
                 children: imageUrlsByCategory.entries
-                  .where((e) => (e.value as List<dynamic>).isNotEmpty)
-                  .map((entry) {
-                    final key = entry.key;
-                    final urls = entry.value as List<dynamic>;
-                    final label = photoCategories[key]?['label'] ?? 'Ostatní / Starší fotky';
-                    return pw.Row(
-                      mainAxisSize: pw.MainAxisSize.min,
-                      children: [
-                        pw.Container(width: 4, height: 4, decoration: const pw.BoxDecoration(shape: pw.BoxShape.circle, color: PdfColors.blue)),
-                        pw.SizedBox(width: 6),
-                        pw.Text('$label (${urls.length}x)', style: pw.TextStyle(font: fontRegular, fontSize: 11)),
-                      ],
-                    );
-                  }).toList(),
+                    .where((e) => (e.value as List<dynamic>).isNotEmpty)
+                    .map((entry) {
+                      final key = entry.key;
+                      final urls = entry.value as List<dynamic>;
+                      final label =
+                          photoCategories[key]?['label'] ??
+                          'Ostatní / Starší fotky';
+                      return pw.Row(
+                        mainAxisSize: pw.MainAxisSize.min,
+                        children: [
+                          pw.Container(
+                            width: 4,
+                            height: 4,
+                            decoration: const pw.BoxDecoration(
+                              shape: pw.BoxShape.circle,
+                              color: PdfColors.blue,
+                            ),
+                          ),
+                          pw.SizedBox(width: 6),
+                          pw.Text(
+                            '$label (${urls.length}x)',
+                            style: pw.TextStyle(
+                              font: fontRegular,
+                              fontSize: 11,
+                            ),
+                          ),
+                        ],
+                      );
+                    })
+                    .toList(),
               ),
-              
-            if (data['poznamky'] != null && data['poznamky'].toString().isNotEmpty) ...[
+
+            if (data['poznamky'] != null &&
+                data['poznamky'].toString().isNotEmpty) ...[
               pw.SizedBox(height: 15),
-              pw.Text('Poznámky k příjmu:', style: pw.TextStyle(font: fontBold, fontSize: 12)),
+              pw.Text(
+                'Poznámky k příjmu:',
+                style: pw.TextStyle(font: fontBold, fontSize: 12),
+              ),
               pw.SizedBox(height: 5),
-              pw.Text(data['poznamky'].toString(), style: pw.TextStyle(font: fontRegular, fontSize: 11, color: PdfColors.grey800)),
+              pw.Text(
+                data['poznamky'].toString(),
+                style: pw.TextStyle(
+                  font: fontRegular,
+                  fontSize: 11,
+                  color: PdfColors.grey800,
+                ),
+              ),
             ],
 
             pw.SizedBox(height: 20),
 
             if (provedenePrace.isNotEmpty) ...[
               pw.NewPage(),
-              pw.Text('Záznam o opravě / Provedené práce', style: pw.TextStyle(font: fontBold, fontSize: 18, color: PdfColors.blue800)),
+              pw.Text(
+                'Záznam o opravě a dodané díly',
+                style: pw.TextStyle(
+                  font: fontBold,
+                  fontSize: 18,
+                  color: PdfColors.blue800,
+                ),
+              ),
               pw.SizedBox(height: 15),
               ...provedenePrace.map((prace) {
-                final pocetFotek = (prace['fotografie_urls'] as List?)?.length ?? 0;
+                final pocetFotek =
+                    (prace['fotografie_urls'] as List?)?.length ?? 0;
                 final dily = prace['pouzite_dily'] as List<dynamic>? ?? [];
-                
+
                 return pw.Container(
                   margin: const pw.EdgeInsets.only(bottom: 15),
                   padding: const pw.EdgeInsets.all(10),
-                  decoration: pw.BoxDecoration(color: PdfColors.grey50, border: pw.Border.all(color: PdfColors.grey300), borderRadius: pw.BorderRadius.circular(8)),
+                  decoration: pw.BoxDecoration(
+                    color: PdfColors.grey50,
+                    border: pw.Border.all(color: PdfColors.grey300),
+                    borderRadius: pw.BorderRadius.circular(8),
+                  ),
                   child: pw.Column(
                     crossAxisAlignment: pw.CrossAxisAlignment.start,
                     children: [
                       pw.Row(
                         mainAxisAlignment: pw.MainAxisAlignment.spaceBetween,
                         children: [
-                          pw.Text('${prace['nazev']} (Cena: ${prace['cena_s_dph']} Kč s DPH)', style: pw.TextStyle(font: fontBold, fontSize: 14)),
-                          pw.Text(_formatDate(prace['cas']), style: pw.TextStyle(font: fontRegular, fontSize: 10, color: PdfColors.grey600)),
+                          pw.Text(
+                            '${prace['nazev']} (Cena úkonu: ${prace['cena_s_dph']} Kč s DPH)',
+                            style: pw.TextStyle(font: fontBold, fontSize: 14),
+                          ),
+                          pw.Text(
+                            _formatDate(prace['cas']),
+                            style: pw.TextStyle(
+                              font: fontRegular,
+                              fontSize: 10,
+                              color: PdfColors.grey600,
+                            ),
+                          ),
                         ],
                       ),
-                      if (prace['delka_prace'] != null && prace['delka_prace'].toString().isNotEmpty)
-                        pw.Text('Délka práce: ${prace['delka_prace']}', style: pw.TextStyle(font: fontRegular, fontSize: 11, color: PdfColors.grey700)),
-                      if (prace['popis'] != null && prace['popis'].toString().isNotEmpty) ...[
+                      if (prace['delka_prace'] != null &&
+                          prace['delka_prace'].toString().isNotEmpty)
+                        pw.Text(
+                          'Délka práce: ${prace['delka_prace']} h',
+                          style: pw.TextStyle(
+                            font: fontRegular,
+                            fontSize: 11,
+                            color: PdfColors.grey700,
+                          ),
+                        ),
+                      if (prace['popis'] != null &&
+                          prace['popis'].toString().isNotEmpty) ...[
                         pw.SizedBox(height: 5),
-                        pw.Text(prace['popis'].toString(), style: pw.TextStyle(font: fontRegular, fontSize: 11)),
+                        pw.Text(
+                          prace['popis'].toString(),
+                          style: pw.TextStyle(font: fontRegular, fontSize: 11),
+                        ),
                       ],
                       if (dily.isNotEmpty) ...[
                         pw.SizedBox(height: 8),
-                        pw.Text('Použité díly:', style: pw.TextStyle(font: fontBold, fontSize: 11)),
-                        ...dily.map((dil) => pw.Padding(
-                          padding: const pw.EdgeInsets.only(top: 2, left: 10),
-                          child: pw.Text('• ${dil['nazev']} (${dil['cislo']}) - ${dil['pocet']} ks - ${dil['cena_s_dph']} Kč s DPH', style: pw.TextStyle(font: fontRegular, fontSize: 10))
-                        )).toList(),
+                        pw.Text(
+                          'Použité díly:',
+                          style: pw.TextStyle(font: fontBold, fontSize: 11),
+                        ),
+                        ...dily
+                            .map(
+                              (dil) => pw.Padding(
+                                padding: const pw.EdgeInsets.only(
+                                  top: 2,
+                                  left: 10,
+                                ),
+                                child: pw.Text(
+                                  '• ${dil['nazev']} (${dil['cislo']}) - ${dil['pocet']} ks - ${dil['cena_s_dph']} Kč s DPH',
+                                  style: pw.TextStyle(
+                                    font: fontRegular,
+                                    fontSize: 10,
+                                  ),
+                                ),
+                              ),
+                            )
+                            .toList(),
                       ],
                       if (pocetFotek > 0) ...[
                         pw.SizedBox(height: 5),
-                        pw.Text('Pořízená fotodokumentace: $pocetFotek fotek', style: pw.TextStyle(font: fontRegular, fontSize: 10, color: PdfColors.blue)),
-                      ]
+                        pw.Text(
+                          'Pořízená fotodokumentace: $pocetFotek fotek',
+                          style: pw.TextStyle(
+                            font: fontRegular,
+                            fontSize: 10,
+                            color: PdfColors.blue,
+                          ),
+                        ),
+                      ],
                     ],
                   ),
                 );
@@ -2375,24 +3227,50 @@ class ActiveJobScreen extends StatelessWidget {
                   pw.Column(
                     crossAxisAlignment: pw.CrossAxisAlignment.start,
                     children: [
-                      pw.Text('Podpis zákazníka:', style: pw.TextStyle(font: fontBold, fontSize: 12)),
+                      pw.Text(
+                        'Podpis zákazníka:',
+                        style: pw.TextStyle(font: fontBold, fontSize: 12),
+                      ),
                       pw.SizedBox(height: 5),
                       pw.Image(podpisImage, width: 150, height: 60),
-                      pw.Container(width: 150, height: 1, color: PdfColors.black),
-                    ]
+                      pw.Container(
+                        width: 150,
+                        height: 1,
+                        color: PdfColors.black,
+                      ),
+                    ],
                   ),
-                  pw.Text('Vygenerováno aplikací Visto', style: pw.TextStyle(font: fontRegular, fontSize: 10, color: PdfColors.grey500)),
-                ]
-              )
+                  pw.Text(
+                    'Vygenerováno aplikací Visto',
+                    style: pw.TextStyle(
+                      font: fontRegular,
+                      fontSize: 10,
+                      color: PdfColors.grey500,
+                    ),
+                  ),
+                ],
+              ),
             ] else ...[
-               pw.Center(child: pw.Text('Vygenerováno aplikací Visto', style: pw.TextStyle(font: fontRegular, fontSize: 10, color: PdfColors.grey500))),
-            ]
+              pw.Center(
+                child: pw.Text(
+                  'Vygenerováno aplikací Visto',
+                  style: pw.TextStyle(
+                    font: fontRegular,
+                    fontSize: 10,
+                    color: PdfColors.grey500,
+                  ),
+                ),
+              ),
+            ],
           ];
         },
       ),
     );
 
-    await Printing.sharePdf(bytes: await pdf.save(), filename: 'Protokol_${data['cislo_zakazky']}.pdf');
+    await Printing.sharePdf(
+      bytes: await pdf.save(),
+      filename: 'Protokol_${data['cislo_zakazky']}.pdf',
+    );
   }
 
   @override
@@ -2404,21 +3282,31 @@ class ActiveJobScreen extends StatelessWidget {
       appBar: AppBar(
         backgroundColor: isDark ? const Color(0xFF1A1A1A) : Colors.white,
         elevation: 1,
-        title: Text('Oprava: $zakazkaId ($spz)', style: const TextStyle(fontWeight: FontWeight.bold)),
+        title: Text(
+          'Oprava: $zakazkaId ($spz)',
+          style: const TextStyle(fontWeight: FontWeight.bold),
+        ),
       ),
       body: StreamBuilder<DocumentSnapshot>(
-        stream: FirebaseFirestore.instance.collection('zakazky').doc(documentId).snapshots(),
+        stream: FirebaseFirestore.instance
+            .collection('zakazky')
+            .doc(documentId)
+            .snapshots(),
         builder: (context, snapshot) {
-          if (snapshot.hasError) return Center(child: Text("Chyba: ${snapshot.error}"));
-          if (!snapshot.hasData) return const Center(child: CircularProgressIndicator());
+          if (snapshot.hasError)
+            return Center(child: Text("Chyba: ${snapshot.error}"));
+          if (!snapshot.hasData)
+            return const Center(child: CircularProgressIndicator());
 
           final data = snapshot.data!.data() as Map<String, dynamic>?;
-          if (data == null) return const Center(child: Text("Dokument nenalezen."));
+          if (data == null)
+            return const Center(child: Text("Dokument nenalezen."));
 
-          final provedenePrace = data['provedene_prace'] as List<dynamic>? ?? [];
+          final provedenePrace =
+              data['provedene_prace'] as List<dynamic>? ?? [];
           final aktualniStav = data['stav_zakazky'] ?? 'Přijato';
           final stav = data['stav_vozidla'] as Map<String, dynamic>? ?? {};
-          final zakaznik = data['zakaznik'] as Map<String, dynamic>? ?? {}; 
+          final zakaznik = data['zakaznik'] as Map<String, dynamic>? ?? {};
           final rawUrls = data['fotografie_urls'];
           final Map<String, dynamic> imageUrlsByCategoryRaw = {};
 
@@ -2434,10 +3322,19 @@ class ActiveJobScreen extends StatelessWidget {
               Container(
                 width: double.infinity,
                 color: isDark ? const Color(0xFF1A1A1A) : Colors.white,
-                padding: const EdgeInsets.symmetric(horizontal: 20, vertical: 15),
+                padding: const EdgeInsets.symmetric(
+                  horizontal: 20,
+                  vertical: 15,
+                ),
                 child: Row(
                   children: [
-                    const Text('Stav zakázky: ', style: TextStyle(fontWeight: FontWeight.bold, fontSize: 16)),
+                    const Text(
+                      'Stav zakázky: ',
+                      style: TextStyle(
+                        fontWeight: FontWeight.bold,
+                        fontSize: 16,
+                      ),
+                    ),
                     const SizedBox(width: 15),
                     Expanded(
                       child: Container(
@@ -2445,94 +3342,266 @@ class ActiveJobScreen extends StatelessWidget {
                         decoration: BoxDecoration(
                           color: getStatusColor(aktualniStav).withOpacity(0.1),
                           borderRadius: BorderRadius.circular(10),
-                          border: Border.all(color: getStatusColor(aktualniStav)),
+                          border: Border.all(
+                            color: getStatusColor(aktualniStav),
+                          ),
                         ),
                         child: DropdownButtonHideUnderline(
                           child: DropdownButton<String>(
                             value: aktualniStav,
                             isExpanded: true,
-                            dropdownColor: isDark ? const Color(0xFF2C2C2C) : Colors.white,
-                            items: stavyZakazky.map((s) => DropdownMenuItem(value: s, child: Text(s, style: TextStyle(color: getStatusColor(s), fontWeight: FontWeight.bold)))).toList(),
+                            dropdownColor: isDark
+                                ? const Color(0xFF2C2C2C)
+                                : Colors.white,
+                            items: stavyZakazky
+                                .map(
+                                  (s) => DropdownMenuItem(
+                                    value: s,
+                                    child: Text(
+                                      s,
+                                      style: TextStyle(
+                                        color: getStatusColor(s),
+                                        fontWeight: FontWeight.bold,
+                                      ),
+                                    ),
+                                  ),
+                                )
+                                .toList(),
                             onChanged: (novyStav) {
-                              if (novyStav != null) _zmenitStav(context, novyStav);
+                              if (novyStav != null)
+                                _zmenitStav(context, novyStav);
                             },
                           ),
                         ),
                       ),
                     ),
                     IconButton(
-                      icon: const Icon(Icons.picture_as_pdf, color: Colors.redAccent),
-                      onPressed: () => _exportToPdf(context, data, stav, zakaznik, imageUrlsByCategoryRaw),
+                      icon: const Icon(
+                        Icons.picture_as_pdf,
+                        color: Colors.redAccent,
+                      ),
+                      onPressed: () => _exportToPdf(
+                        context,
+                        data,
+                        stav,
+                        zakaznik,
+                        imageUrlsByCategoryRaw,
+                      ),
                       tooltip: 'Stáhnout PDF',
-                    )
+                    ),
                   ],
                 ),
               ),
               const Divider(height: 1),
 
-              const Padding(padding: EdgeInsets.fromLTRB(20, 20, 20, 10), child: Text('Zaznamenané úkony', style: TextStyle(fontSize: 20, fontWeight: FontWeight.bold))),
+              const Padding(
+                padding: EdgeInsets.fromLTRB(20, 20, 20, 10),
+                child: Text(
+                  'Zaznamenané úkony',
+                  style: TextStyle(fontSize: 20, fontWeight: FontWeight.bold),
+                ),
+              ),
               Expanded(
                 child: provedenePrace.isEmpty
-                  ? Center(child: Column(mainAxisAlignment: MainAxisAlignment.center, children: [Icon(Icons.build_circle_outlined, size: 80, color: Colors.grey.withOpacity(0.5)), const SizedBox(height: 16), const Text('Zatím nebyly přidány žádné práce.', style: TextStyle(color: Colors.grey))]))
-                  : ListView.builder(
-                      padding: const EdgeInsets.all(20),
-                      itemCount: provedenePrace.length,
-                      itemBuilder: (context, index) {
-                        final prace = provedenePrace[provedenePrace.length - 1 - index];
-                        final fotky = prace['fotografie_urls'] as List<dynamic>? ?? [];
-                        final dily = prace['pouzite_dily'] as List<dynamic>? ?? [];
-                        
-                        return Card(
-                          margin: const EdgeInsets.only(bottom: 15),
-                          color: isDark ? const Color(0xFF1E1E1E) : Colors.white,
-                          shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(15), side: BorderSide(color: Colors.blue.withOpacity(0.3))),
-                          child: Padding(
-                            padding: const EdgeInsets.all(20),
-                            child: Column(
-                              crossAxisAlignment: CrossAxisAlignment.start,
-                              children: [
-                                Row(
-                                  mainAxisAlignment: MainAxisAlignment.spaceBetween,
-                                  children: [
-                                    Expanded(child: Text('${prace['nazev']} (${prace['cena_s_dph']} Kč s DPH)', style: const TextStyle(fontSize: 18, fontWeight: FontWeight.bold))),
-                                    IconButton(onPressed: () => _deleteWork(context, prace), icon: const Icon(Icons.delete_outline, color: Colors.red, size: 20)),
-                                  ],
-                                ),
-                                Text(_formatDate(prace['cas']), style: const TextStyle(fontSize: 12, color: Colors.grey)),
-                                
-                                if (prace['popis'] != null && prace['popis'].toString().isNotEmpty) ...[
-                                  const SizedBox(height: 10),
-                                  Text(prace['popis'], style: const TextStyle(fontSize: 14)),
-                                ],
-                                
-                                if (prace['delka_prace'] != null && prace['delka_prace'].toString().isNotEmpty) Padding(padding: const EdgeInsets.only(top: 4), child: Text('Čas práce: ${prace['delka_prace']}', style: const TextStyle(fontWeight: FontWeight.w500, color: Colors.blue))),
-                                
-                                if (dily.isNotEmpty) ...[
-                                  const SizedBox(height: 10),
-                                  const Text('Použité díly:', style: TextStyle(fontWeight: FontWeight.bold, fontSize: 13, color: Colors.grey)),
-                                  ...dily.map((dil) => Padding(
-                                    padding: const EdgeInsets.only(top: 4, left: 10),
-                                    child: Text('• ${dil['nazev']} (${dil['cislo']}) - ${dil['pocet']} ks - ${dil['cena_s_dph']} Kč s DPH', style: const TextStyle(fontSize: 13)),
-                                  )).toList()
-                                ],
-
-                                if (fotky.isNotEmpty) Padding(
-                                  padding: const EdgeInsets.only(top: 15),
-                                  child: SizedBox(height: 100, child: ListView.separated(scrollDirection: Axis.horizontal, itemCount: fotky.length, separatorBuilder: (c, i) => const SizedBox(width: 10), itemBuilder: (c, i) => GestureDetector(onTap: () => html.window.open(fotky[i], "_blank"), child: ClipRRect(borderRadius: BorderRadius.circular(8), child: Image.network(fotky[i], width: 140, fit: BoxFit.cover))))),
-                                )
-                              ],
+                    ? Center(
+                        child: Column(
+                          mainAxisAlignment: MainAxisAlignment.center,
+                          children: [
+                            Icon(
+                              Icons.build_circle_outlined,
+                              size: 80,
+                              color: Colors.grey.withOpacity(0.5),
                             ),
-                          )
-                        );
-                      },
-                    ),
+                            const SizedBox(height: 16),
+                            const Text(
+                              'Zatím nebyly přidány žádné práce.',
+                              style: TextStyle(color: Colors.grey),
+                            ),
+                          ],
+                        ),
+                      )
+                    : ListView.builder(
+                        padding: const EdgeInsets.all(20),
+                        itemCount: provedenePrace.length,
+                        itemBuilder: (context, index) {
+                          final prace =
+                              provedenePrace[provedenePrace.length - 1 - index];
+                          final fotky =
+                              prace['fotografie_urls'] as List<dynamic>? ?? [];
+                          final dily =
+                              prace['pouzite_dily'] as List<dynamic>? ?? [];
+
+                          return Card(
+                            margin: const EdgeInsets.only(bottom: 15),
+                            color: isDark
+                                ? const Color(0xFF1E1E1E)
+                                : Colors.white,
+                            shape: RoundedRectangleBorder(
+                              borderRadius: BorderRadius.circular(15),
+                              side: BorderSide(
+                                color: Colors.blue.withOpacity(0.3),
+                              ),
+                            ),
+                            child: Padding(
+                              padding: const EdgeInsets.all(20),
+                              child: Column(
+                                crossAxisAlignment: CrossAxisAlignment.start,
+                                children: [
+                                  Row(
+                                    mainAxisAlignment:
+                                        MainAxisAlignment.spaceBetween,
+                                    children: [
+                                      Expanded(
+                                        child: Text(
+                                          '${prace['nazev']} (${prace['cena_s_dph']} Kč s DPH)',
+                                          style: const TextStyle(
+                                            fontSize: 18,
+                                            fontWeight: FontWeight.bold,
+                                          ),
+                                        ),
+                                      ),
+                                      IconButton(
+                                        onPressed: () =>
+                                            _deleteWork(context, prace),
+                                        icon: const Icon(
+                                          Icons.delete_outline,
+                                          color: Colors.red,
+                                          size: 20,
+                                        ),
+                                      ),
+                                    ],
+                                  ),
+                                  Text(
+                                    _formatDate(prace['cas']),
+                                    style: const TextStyle(
+                                      fontSize: 12,
+                                      color: Colors.grey,
+                                    ),
+                                  ),
+
+                                  if (prace['popis'] != null &&
+                                      prace['popis'].toString().isNotEmpty) ...[
+                                    const SizedBox(height: 10),
+                                    Text(
+                                      prace['popis'],
+                                      style: const TextStyle(fontSize: 14),
+                                    ),
+                                  ],
+
+                                  if (prace['delka_prace'] != null &&
+                                      prace['delka_prace']
+                                          .toString()
+                                          .isNotEmpty)
+                                    Padding(
+                                      padding: const EdgeInsets.only(top: 4),
+                                      child: Text(
+                                        'Čas práce: ${prace['delka_prace']} h',
+                                        style: const TextStyle(
+                                          fontWeight: FontWeight.w500,
+                                          color: Colors.blue,
+                                        ),
+                                      ),
+                                    ),
+
+                                  if (dily.isNotEmpty) ...[
+                                    const SizedBox(height: 10),
+                                    const Text(
+                                      'Použité díly:',
+                                      style: TextStyle(
+                                        fontWeight: FontWeight.bold,
+                                        fontSize: 13,
+                                        color: Colors.grey,
+                                      ),
+                                    ),
+                                    ...dily
+                                        .map(
+                                          (dil) => Padding(
+                                            padding: const EdgeInsets.only(
+                                              top: 4,
+                                              left: 10,
+                                            ),
+                                            child: Text(
+                                              '• ${dil['nazev']} (${dil['cislo']}) - ${dil['pocet']} ks - ${dil['cena_s_dph']} Kč s DPH',
+                                              style: const TextStyle(
+                                                fontSize: 13,
+                                              ),
+                                            ),
+                                          ),
+                                        )
+                                        .toList(),
+                                  ],
+
+                                  if (fotky.isNotEmpty)
+                                    Padding(
+                                      padding: const EdgeInsets.only(top: 15),
+                                      child: SizedBox(
+                                        height: 100,
+                                        child: ListView.separated(
+                                          scrollDirection: Axis.horizontal,
+                                          itemCount: fotky.length,
+                                          separatorBuilder: (c, i) =>
+                                              const SizedBox(width: 10),
+                                          itemBuilder: (c, i) =>
+                                              GestureDetector(
+                                                onTap: () => html.window.open(
+                                                  fotky[i],
+                                                  "_blank",
+                                                ),
+                                                child: ClipRRect(
+                                                  borderRadius:
+                                                      BorderRadius.circular(8),
+                                                  child: Image.network(
+                                                    fotky[i],
+                                                    width: 140,
+                                                    fit: BoxFit.cover,
+                                                  ),
+                                                ),
+                                              ),
+                                        ),
+                                      ),
+                                    ),
+                                ],
+                              ),
+                            ),
+                          );
+                        },
+                      ),
               ),
               Container(
                 width: double.infinity,
                 padding: const EdgeInsets.all(20),
-                decoration: BoxDecoration(color: isDark ? const Color(0xFF1A1A1A) : Colors.white, boxShadow: [BoxShadow(color: Colors.black.withOpacity(0.05), blurRadius: 10, offset: const Offset(0, -5))]),
-                child: SafeArea(child: ElevatedButton.icon(onPressed: () => _openAddWorkDialog(context), icon: const Icon(Icons.add), label: const Text('ZAZNAMENAT ÚKON', style: TextStyle(fontWeight: FontWeight.bold, fontSize: 16)), style: ElevatedButton.styleFrom(backgroundColor: Colors.blue, foregroundColor: Colors.white, padding: const EdgeInsets.symmetric(vertical: 20), shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(15))))),
-              )
+                decoration: BoxDecoration(
+                  color: isDark ? const Color(0xFF1A1A1A) : Colors.white,
+                  boxShadow: [
+                    BoxShadow(
+                      color: Colors.black.withOpacity(0.05),
+                      blurRadius: 10,
+                      offset: const Offset(0, -5),
+                    ),
+                  ],
+                ),
+                child: SafeArea(
+                  child: ElevatedButton.icon(
+                    onPressed: () => _openAddWorkDialog(context),
+                    icon: const Icon(Icons.add),
+                    label: const Text(
+                      'ZAZNAMENAT ÚKON',
+                      style: TextStyle(
+                        fontWeight: FontWeight.bold,
+                        fontSize: 16,
+                      ),
+                    ),
+                    style: ElevatedButton.styleFrom(
+                      backgroundColor: Colors.blue,
+                      foregroundColor: Colors.white,
+                      padding: const EdgeInsets.symmetric(vertical: 20),
+                      shape: RoundedRectangleBorder(
+                        borderRadius: BorderRadius.circular(15),
+                      ),
+                    ),
+                  ),
+                ),
+              ),
             ],
           );
         },
@@ -2563,10 +3632,42 @@ class _AddWorkSheetState extends State<_AddWorkSheet> {
   final _praceCenaSDphController = TextEditingController();
 
   final List<DilInput> _dilyInputs = [];
-  
+
   final List<XFile> _workImages = [];
   final ImagePicker _picker = ImagePicker();
   bool _isSaving = false;
+  double _hodinovaSazba = 0.0;
+
+  @override
+  void initState() {
+    super.initState();
+    _nactiHodinovouSazbu();
+  }
+
+  // --- NOVÉ: Načtení hodinové sazby servisu ---
+  Future<void> _nactiHodinovouSazbu() async {
+    final user = FirebaseAuth.instance.currentUser;
+    if (user != null) {
+      final doc = await FirebaseFirestore.instance
+          .collection('nastaveni_servisu')
+          .doc(user.uid)
+          .get();
+      if (doc.exists) {
+        setState(() {
+          _hodinovaSazba = (doc.data()?['hodinova_sazba'] ?? 0.0).toDouble();
+        });
+      }
+    }
+  }
+
+  // --- NOVÉ: Automatický výpočet ceny práce ---
+  void _vypocitejCenuPrace(String hodiny) {
+    double pocetHodin = double.tryParse(hodiny.replaceAll(',', '.')) ?? 0.0;
+    double cenaBezDph = pocetHodin * _hodinovaSazba;
+
+    _praceCenaBezDphController.text = cenaBezDph.toStringAsFixed(2);
+    _vypocitejDPH(cenaBezDph.toString(), _praceCenaSDphController);
+  }
 
   @override
   void dispose() {
@@ -2582,12 +3683,21 @@ class _AddWorkSheetState extends State<_AddWorkSheet> {
   }
 
   Future<void> _takePhoto() async {
-    final photo = await _picker.pickImage(source: ImageSource.camera, imageQuality: 60, maxWidth: 1280, maxHeight: 1280);
+    final photo = await _picker.pickImage(
+      source: ImageSource.camera,
+      imageQuality: 60,
+      maxWidth: 1280,
+      maxHeight: 1280,
+    );
     if (photo != null) setState(() => _workImages.add(photo));
   }
 
   Future<void> _pickFromGallery() async {
-    final photos = await _picker.pickMultiImage(imageQuality: 60, maxWidth: 1280, maxHeight: 1280);
+    final photos = await _picker.pickMultiImage(
+      imageQuality: 60,
+      maxWidth: 1280,
+      maxHeight: 1280,
+    );
     if (photos.isNotEmpty) setState(() => _workImages.addAll(photos));
   }
 
@@ -2598,35 +3708,63 @@ class _AddWorkSheetState extends State<_AddWorkSheet> {
       final user = FirebaseAuth.instance.currentUser;
       List<String> uploadedUrls = [];
       for (int i = 0; i < _workImages.length; i++) {
-        String fileName = 'prace_${DateTime.now().millisecondsSinceEpoch}_$i.jpg';
-        Reference ref = FirebaseStorage.instance.ref().child('servisy/${user!.uid}/zakazky/${widget.zakazkaId}/$fileName');
+        String fileName =
+            'prace_${DateTime.now().millisecondsSinceEpoch}_$i.jpg';
+        Reference ref = FirebaseStorage.instance.ref().child(
+          'servisy/${user!.uid}/zakazky/${widget.zakazkaId}/$fileName',
+        );
         await ref.putData(await _workImages[i].readAsBytes());
         uploadedUrls.add(await ref.getDownloadURL());
       }
-      
-      List<Map<String, dynamic>> pouziteDily = _dilyInputs.map((dil) => {
-        'cislo': dil.cislo.text.trim(),
-        'nazev': dil.nazev.text.trim(),
-        'pocet': double.tryParse(dil.pocet.text.replaceAll(',', '.')) ?? 1.0,
-        'cena_bez_dph': double.tryParse(dil.cenaBezDph.text.replaceAll(',', '.')) ?? 0.0,
-        'cena_s_dph': double.tryParse(dil.cenaSDph.text.replaceAll(',', '.')) ?? 0.0,
-      }).where((d) => d['nazev'].toString().isNotEmpty).toList();
 
-      await FirebaseFirestore.instance.collection('zakazky').doc(widget.documentId).update({
-        'provedene_prace': FieldValue.arrayUnion([{
-          'nazev': _nazevController.text.trim(),
-          'popis': _popisController.text.trim(),
-          'pouzite_dily': pouziteDily,
-          'delka_prace': _delkaController.text.trim(),
-          'cena_bez_dph': double.tryParse(_praceCenaBezDphController.text.replaceAll(',', '.')) ?? 0.0,
-          'cena_s_dph': double.tryParse(_praceCenaSDphController.text.replaceAll(',', '.')) ?? 0.0,
-          'cas': Timestamp.now(),
-          'fotografie_urls': uploadedUrls,
-        }])
-      });
-      if (mounted) Navigator.pop(context); 
+      List<Map<String, dynamic>> pouziteDily = _dilyInputs
+          .map(
+            (dil) => {
+              'cislo': dil.cislo.text.trim(),
+              'nazev': dil.nazev.text.trim(),
+              'pocet':
+                  double.tryParse(dil.pocet.text.replaceAll(',', '.')) ?? 1.0,
+              'cena_bez_dph':
+                  double.tryParse(dil.cenaBezDph.text.replaceAll(',', '.')) ??
+                  0.0,
+              'cena_s_dph':
+                  double.tryParse(dil.cenaSDph.text.replaceAll(',', '.')) ??
+                  0.0,
+            },
+          )
+          .where((d) => d['nazev'].toString().isNotEmpty)
+          .toList();
+
+      await FirebaseFirestore.instance
+          .collection('zakazky')
+          .doc(widget.documentId)
+          .update({
+            'provedene_prace': FieldValue.arrayUnion([
+              {
+                'nazev': _nazevController.text.trim(),
+                'popis': _popisController.text.trim(),
+                'pouzite_dily': pouziteDily,
+                'delka_prace': _delkaController.text.trim(),
+                'cena_bez_dph':
+                    double.tryParse(
+                      _praceCenaBezDphController.text.replaceAll(',', '.'),
+                    ) ??
+                    0.0,
+                'cena_s_dph':
+                    double.tryParse(
+                      _praceCenaSDphController.text.replaceAll(',', '.'),
+                    ) ??
+                    0.0,
+                'cas': Timestamp.now(),
+                'fotografie_urls': uploadedUrls,
+              },
+            ]),
+          });
+      if (mounted) Navigator.pop(context);
     } catch (e) {
-      ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text('Chyba: $e')));
+      ScaffoldMessenger.of(
+        context,
+      ).showSnackBar(SnackBar(content: Text('Chyba: $e')));
       setState(() => _isSaving = false);
     }
   }
@@ -2641,68 +3779,267 @@ class _AddWorkSheetState extends State<_AddWorkSheet> {
   Widget build(BuildContext context) {
     final isDark = Theme.of(context).brightness == Brightness.dark;
     return Container(
-      decoration: BoxDecoration(color: isDark ? const Color(0xFF1A1A1A) : Colors.white, borderRadius: const BorderRadius.vertical(top: Radius.circular(25))),
-      padding: EdgeInsets.only(bottom: MediaQuery.of(context).viewInsets.bottom, top: 30, left: 30, right: 30),
+      decoration: BoxDecoration(
+        color: isDark ? const Color(0xFF1A1A1A) : Colors.white,
+        borderRadius: const BorderRadius.vertical(top: Radius.circular(25)),
+      ),
+      padding: EdgeInsets.only(
+        bottom: MediaQuery.of(context).viewInsets.bottom,
+        top: 30,
+        left: 30,
+        right: 30,
+      ),
       child: SingleChildScrollView(
         child: Column(
           mainAxisSize: MainAxisSize.min,
           crossAxisAlignment: CrossAxisAlignment.start,
           children: [
-            const Text('Zaznamenat práci', style: TextStyle(fontSize: 24, fontWeight: FontWeight.bold)),
+            const Text(
+              'Zaznamenat práci',
+              style: TextStyle(fontSize: 24, fontWeight: FontWeight.bold),
+            ),
             const SizedBox(height: 20),
-            TextField(controller: _nazevController, decoration: InputDecoration(labelText: 'Název úkonu *', filled: true, fillColor: isDark ? const Color(0xFF2C2C2C) : Colors.grey[100], border: OutlineInputBorder(borderRadius: BorderRadius.circular(15), borderSide: BorderSide.none))),
+            TextField(
+              controller: _nazevController,
+              decoration: InputDecoration(
+                labelText: 'Název úkonu *',
+                filled: true,
+                fillColor: isDark ? const Color(0xFF2C2C2C) : Colors.grey[100],
+                border: OutlineInputBorder(
+                  borderRadius: BorderRadius.circular(15),
+                  borderSide: BorderSide.none,
+                ),
+              ),
+            ),
             const SizedBox(height: 15),
 
             Row(
               children: [
-                Expanded(child: TextField(controller: _delkaController, decoration: InputDecoration(labelText: 'Délka práce (např. 1.5h)', filled: true, fillColor: isDark ? const Color(0xFF2C2C2C) : Colors.grey[100], border: OutlineInputBorder(borderRadius: BorderRadius.circular(15), borderSide: BorderSide.none)))),
+                Expanded(
+                  child: TextField(
+                    controller: _delkaController,
+                    keyboardType: const TextInputType.numberWithOptions(
+                      decimal: true,
+                    ),
+                    onChanged: _vypocitejCenuPrace, // NOVÉ: Výpočet při změně
+                    decoration: InputDecoration(
+                      labelText: 'Čas práce (hodiny)',
+                      hintText: 'např. 1.5',
+                      filled: true,
+                      fillColor: isDark
+                          ? const Color(0xFF2C2C2C)
+                          : Colors.grey[100],
+                      border: OutlineInputBorder(
+                        borderRadius: BorderRadius.circular(15),
+                        borderSide: BorderSide.none,
+                      ),
+                    ),
+                  ),
+                ),
                 const SizedBox(width: 10),
-                Expanded(child: TextField(
-                  controller: _praceCenaBezDphController, 
-                  keyboardType: const TextInputType.numberWithOptions(decimal: true),
-                  onChanged: (val) => _vypocitejDPH(val, _praceCenaSDphController),
-                  decoration: InputDecoration(labelText: 'Cena bez DPH', filled: true, fillColor: isDark ? const Color(0xFF2C2C2C) : Colors.grey[100], border: OutlineInputBorder(borderRadius: BorderRadius.circular(15), borderSide: BorderSide.none))
-                )),
+                Expanded(
+                  child: TextField(
+                    controller: _praceCenaBezDphController,
+                    keyboardType: const TextInputType.numberWithOptions(
+                      decimal: true,
+                    ),
+                    onChanged: (val) =>
+                        _vypocitejDPH(val, _praceCenaSDphController),
+                    decoration: InputDecoration(
+                      labelText: 'Cena bez DPH',
+                      filled: true,
+                      fillColor: isDark
+                          ? const Color(0xFF2C2C2C)
+                          : Colors.grey[100],
+                      border: OutlineInputBorder(
+                        borderRadius: BorderRadius.circular(15),
+                        borderSide: BorderSide.none,
+                      ),
+                    ),
+                  ),
+                ),
                 const SizedBox(width: 10),
-                Expanded(child: TextField(controller: _praceCenaSDphController, keyboardType: const TextInputType.numberWithOptions(decimal: true), decoration: InputDecoration(labelText: 'Cena s DPH', filled: true, fillColor: isDark ? const Color(0xFF2C2C2C) : Colors.grey[100], border: OutlineInputBorder(borderRadius: BorderRadius.circular(15), borderSide: BorderSide.none)))),
+                Expanded(
+                  child: TextField(
+                    controller: _praceCenaSDphController,
+                    keyboardType: const TextInputType.numberWithOptions(
+                      decimal: true,
+                    ),
+                    decoration: InputDecoration(
+                      labelText: 'Cena s DPH',
+                      filled: true,
+                      fillColor: isDark
+                          ? const Color(0xFF2C2C2C)
+                          : Colors.grey[100],
+                      border: OutlineInputBorder(
+                        borderRadius: BorderRadius.circular(15),
+                        borderSide: BorderSide.none,
+                      ),
+                    ),
+                  ),
+                ),
               ],
             ),
             const SizedBox(height: 15),
-            
+
             Column(
               crossAxisAlignment: CrossAxisAlignment.start,
               children: [
-                const Text('Použité díly:', style: TextStyle(fontWeight: FontWeight.bold, color: Colors.grey)),
+                const Text(
+                  'Použité díly:',
+                  style: TextStyle(
+                    fontWeight: FontWeight.bold,
+                    color: Colors.grey,
+                  ),
+                ),
                 const SizedBox(height: 10),
                 ...List.generate(_dilyInputs.length, (index) {
                   final dil = _dilyInputs[index];
                   return Container(
                     margin: const EdgeInsets.only(bottom: 15),
                     padding: const EdgeInsets.all(10),
-                    decoration: BoxDecoration(border: Border.all(color: Colors.grey.withOpacity(0.3)), borderRadius: BorderRadius.circular(15)),
+                    decoration: BoxDecoration(
+                      border: Border.all(color: Colors.grey.withOpacity(0.3)),
+                      borderRadius: BorderRadius.circular(15),
+                    ),
                     child: Column(
                       children: [
                         Row(
                           children: [
-                            Expanded(flex: 1, child: TextField(controller: dil.cislo, decoration: InputDecoration(hintText: 'Číslo dílu', filled: true, fillColor: isDark ? const Color(0xFF2C2C2C) : Colors.grey[100], border: OutlineInputBorder(borderRadius: BorderRadius.circular(10), borderSide: BorderSide.none), contentPadding: const EdgeInsets.symmetric(horizontal: 10, vertical: 10)))),
+                            Expanded(
+                              flex: 1,
+                              child: TextField(
+                                controller: dil.cislo,
+                                decoration: InputDecoration(
+                                  hintText: 'Číslo dílu',
+                                  filled: true,
+                                  fillColor: isDark
+                                      ? const Color(0xFF2C2C2C)
+                                      : Colors.grey[100],
+                                  border: OutlineInputBorder(
+                                    borderRadius: BorderRadius.circular(10),
+                                    borderSide: BorderSide.none,
+                                  ),
+                                  contentPadding: const EdgeInsets.symmetric(
+                                    horizontal: 10,
+                                    vertical: 10,
+                                  ),
+                                ),
+                              ),
+                            ),
                             const SizedBox(width: 10),
-                            Expanded(flex: 2, child: TextField(controller: dil.nazev, decoration: InputDecoration(hintText: 'Název dílu', filled: true, fillColor: isDark ? const Color(0xFF2C2C2C) : Colors.grey[100], border: OutlineInputBorder(borderRadius: BorderRadius.circular(10), borderSide: BorderSide.none), contentPadding: const EdgeInsets.symmetric(horizontal: 10, vertical: 10)))),
-                            IconButton(icon: const Icon(Icons.remove_circle_outline, color: Colors.red), onPressed: () => setState(() { dil.dispose(); _dilyInputs.removeAt(index); }))
+                            Expanded(
+                              flex: 2,
+                              child: TextField(
+                                controller: dil.nazev,
+                                decoration: InputDecoration(
+                                  hintText: 'Název dílu',
+                                  filled: true,
+                                  fillColor: isDark
+                                      ? const Color(0xFF2C2C2C)
+                                      : Colors.grey[100],
+                                  border: OutlineInputBorder(
+                                    borderRadius: BorderRadius.circular(10),
+                                    borderSide: BorderSide.none,
+                                  ),
+                                  contentPadding: const EdgeInsets.symmetric(
+                                    horizontal: 10,
+                                    vertical: 10,
+                                  ),
+                                ),
+                              ),
+                            ),
+                            IconButton(
+                              icon: const Icon(
+                                Icons.remove_circle_outline,
+                                color: Colors.red,
+                              ),
+                              onPressed: () => setState(() {
+                                dil.dispose();
+                                _dilyInputs.removeAt(index);
+                              }),
+                            ),
                           ],
                         ),
                         const SizedBox(height: 10),
                         Row(
                           children: [
-                            Expanded(flex: 1, child: TextField(controller: dil.pocet, keyboardType: TextInputType.number, decoration: InputDecoration(labelText: 'Počet', filled: true, fillColor: isDark ? const Color(0xFF2C2C2C) : Colors.grey[100], border: OutlineInputBorder(borderRadius: BorderRadius.circular(10), borderSide: BorderSide.none), contentPadding: const EdgeInsets.symmetric(horizontal: 10, vertical: 10)))),
+                            Expanded(
+                              flex: 1,
+                              child: TextField(
+                                controller: dil.pocet,
+                                keyboardType: TextInputType.number,
+                                decoration: InputDecoration(
+                                  labelText: 'Počet',
+                                  filled: true,
+                                  fillColor: isDark
+                                      ? const Color(0xFF2C2C2C)
+                                      : Colors.grey[100],
+                                  border: OutlineInputBorder(
+                                    borderRadius: BorderRadius.circular(10),
+                                    borderSide: BorderSide.none,
+                                  ),
+                                  contentPadding: const EdgeInsets.symmetric(
+                                    horizontal: 10,
+                                    vertical: 10,
+                                  ),
+                                ),
+                              ),
+                            ),
                             const SizedBox(width: 10),
-                            Expanded(flex: 2, child: TextField(
-                              controller: dil.cenaBezDph, 
-                              keyboardType: const TextInputType.numberWithOptions(decimal: true),
-                              onChanged: (val) => _vypocitejDPH(val, dil.cenaSDph),
-                              decoration: InputDecoration(labelText: 'Cena bez DPH/ks', filled: true, fillColor: isDark ? const Color(0xFF2C2C2C) : Colors.grey[100], border: OutlineInputBorder(borderRadius: BorderRadius.circular(10), borderSide: BorderSide.none), contentPadding: const EdgeInsets.symmetric(horizontal: 10, vertical: 10))
-                            )),
+                            Expanded(
+                              flex: 2,
+                              child: TextField(
+                                controller: dil.cenaBezDph,
+                                keyboardType:
+                                    const TextInputType.numberWithOptions(
+                                      decimal: true,
+                                    ),
+                                onChanged: (val) =>
+                                    _vypocitejDPH(val, dil.cenaSDph),
+                                decoration: InputDecoration(
+                                  labelText: 'Cena bez DPH/ks',
+                                  filled: true,
+                                  fillColor: isDark
+                                      ? const Color(0xFF2C2C2C)
+                                      : Colors.grey[100],
+                                  border: OutlineInputBorder(
+                                    borderRadius: BorderRadius.circular(10),
+                                    borderSide: BorderSide.none,
+                                  ),
+                                  contentPadding: const EdgeInsets.symmetric(
+                                    horizontal: 10,
+                                    vertical: 10,
+                                  ),
+                                ),
+                              ),
+                            ),
                             const SizedBox(width: 10),
-                            Expanded(flex: 2, child: TextField(controller: dil.cenaSDph, keyboardType: const TextInputType.numberWithOptions(decimal: true), decoration: InputDecoration(labelText: 'Cena s DPH/ks', filled: true, fillColor: isDark ? const Color(0xFF2C2C2C) : Colors.grey[100], border: OutlineInputBorder(borderRadius: BorderRadius.circular(10), borderSide: BorderSide.none), contentPadding: const EdgeInsets.symmetric(horizontal: 10, vertical: 10)))),
+                            Expanded(
+                              flex: 2,
+                              child: TextField(
+                                controller: dil.cenaSDph,
+                                keyboardType:
+                                    const TextInputType.numberWithOptions(
+                                      decimal: true,
+                                    ),
+                                decoration: InputDecoration(
+                                  labelText: 'Cena s DPH/ks',
+                                  filled: true,
+                                  fillColor: isDark
+                                      ? const Color(0xFF2C2C2C)
+                                      : Colors.grey[100],
+                                  border: OutlineInputBorder(
+                                    borderRadius: BorderRadius.circular(10),
+                                    borderSide: BorderSide.none,
+                                  ),
+                                  contentPadding: const EdgeInsets.symmetric(
+                                    horizontal: 10,
+                                    vertical: 10,
+                                  ),
+                                ),
+                              ),
+                            ),
                           ],
                         ),
                       ],
@@ -2718,13 +4055,128 @@ class _AddWorkSheetState extends State<_AddWorkSheet> {
             ),
             const SizedBox(height: 15),
 
-            TextField(controller: _popisController, maxLines: 2, decoration: InputDecoration(labelText: 'Popis / poznámka k úkonu', filled: true, fillColor: isDark ? const Color(0xFF2C2C2C) : Colors.grey[100], border: OutlineInputBorder(borderRadius: BorderRadius.circular(15), borderSide: BorderSide.none))),
+            TextField(
+              controller: _popisController,
+              maxLines: 2,
+              decoration: InputDecoration(
+                labelText: 'Popis / poznámka k úkonu',
+                filled: true,
+                fillColor: isDark ? const Color(0xFF2C2C2C) : Colors.grey[100],
+                border: OutlineInputBorder(
+                  borderRadius: BorderRadius.circular(15),
+                  borderSide: BorderSide.none,
+                ),
+              ),
+            ),
             const SizedBox(height: 20),
-            const Text('Fotografie k úkonu:', style: TextStyle(fontWeight: FontWeight.bold)),
+            const Text(
+              'Fotografie k úkonu:',
+              style: TextStyle(fontWeight: FontWeight.bold),
+            ),
             const SizedBox(height: 10),
-            SizedBox(height: 80, child: Row(children: [GestureDetector(onTap: _takePhoto, child: Container(width: 80, decoration: BoxDecoration(color: Colors.blue.withOpacity(0.1), borderRadius: BorderRadius.circular(10), border: Border.all(color: Colors.blue)), child: const Icon(Icons.add_a_photo, color: Colors.blue))), const SizedBox(width: 10), GestureDetector(onTap: _pickFromGallery, child: Container(width: 80, decoration: BoxDecoration(color: Colors.blueGrey.withOpacity(0.1), borderRadius: BorderRadius.circular(10), border: Border.all(color: Colors.blueGrey)), child: const Icon(Icons.photo_library, color: Colors.blueGrey))), const SizedBox(width: 10), Expanded(child: ListView.builder(scrollDirection: Axis.horizontal, itemCount: _workImages.length, itemBuilder: (c, i) => Stack(children: [Container(margin: const EdgeInsets.only(right: 10), child: ClipRRect(borderRadius: BorderRadius.circular(10), child: kIsWeb ? Image.network(_workImages[i].path, width: 80, height: 80, fit: BoxFit.cover) : Image.file(File(_workImages[i].path), width: 80, height: 80, fit: BoxFit.cover))), Positioned(top: 2, right: 12, child: GestureDetector(onTap: () => setState(() => _workImages.removeAt(i)), child: const CircleAvatar(radius: 10, backgroundColor: Colors.white, child: Icon(Icons.close, size: 12, color: Colors.red))))])))])),
+            SizedBox(
+              height: 80,
+              child: Row(
+                children: [
+                  GestureDetector(
+                    onTap: _takePhoto,
+                    child: Container(
+                      width: 80,
+                      decoration: BoxDecoration(
+                        color: Colors.blue.withOpacity(0.1),
+                        borderRadius: BorderRadius.circular(10),
+                        border: Border.all(color: Colors.blue),
+                      ),
+                      child: const Icon(Icons.add_a_photo, color: Colors.blue),
+                    ),
+                  ),
+                  const SizedBox(width: 10),
+                  GestureDetector(
+                    onTap: _pickFromGallery,
+                    child: Container(
+                      width: 80,
+                      decoration: BoxDecoration(
+                        color: Colors.blueGrey.withOpacity(0.1),
+                        borderRadius: BorderRadius.circular(10),
+                        border: Border.all(color: Colors.blueGrey),
+                      ),
+                      child: const Icon(
+                        Icons.photo_library,
+                        color: Colors.blueGrey,
+                      ),
+                    ),
+                  ),
+                  const SizedBox(width: 10),
+                  Expanded(
+                    child: ListView.builder(
+                      scrollDirection: Axis.horizontal,
+                      itemCount: _workImages.length,
+                      itemBuilder: (c, i) => Stack(
+                        children: [
+                          Container(
+                            margin: const EdgeInsets.only(right: 10),
+                            child: ClipRRect(
+                              borderRadius: BorderRadius.circular(10),
+                              child: kIsWeb
+                                  ? Image.network(
+                                      _workImages[i].path,
+                                      width: 80,
+                                      height: 80,
+                                      fit: BoxFit.cover,
+                                    )
+                                  : Image.file(
+                                      File(_workImages[i].path),
+                                      width: 80,
+                                      height: 80,
+                                      fit: BoxFit.cover,
+                                    ),
+                            ),
+                          ),
+                          Positioned(
+                            top: 2,
+                            right: 12,
+                            child: GestureDetector(
+                              onTap: () =>
+                                  setState(() => _workImages.removeAt(i)),
+                              child: const CircleAvatar(
+                                radius: 10,
+                                backgroundColor: Colors.white,
+                                child: Icon(
+                                  Icons.close,
+                                  size: 12,
+                                  color: Colors.red,
+                                ),
+                              ),
+                            ),
+                          ),
+                        ],
+                      ),
+                    ),
+                  ),
+                ],
+              ),
+            ),
             const SizedBox(height: 30),
-            SizedBox(width: double.infinity, child: ElevatedButton(onPressed: _isSaving ? null : _saveWork, style: ElevatedButton.styleFrom(backgroundColor: Colors.blue, foregroundColor: Colors.white, padding: const EdgeInsets.symmetric(vertical: 18), shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(15))), child: _isSaving ? const CircularProgressIndicator(color: Colors.white) : const Text('ULOŽIT ÚKON', style: TextStyle(fontWeight: FontWeight.bold)))),
+            SizedBox(
+              width: double.infinity,
+              child: ElevatedButton(
+                onPressed: _isSaving ? null : _saveWork,
+                style: ElevatedButton.styleFrom(
+                  backgroundColor: Colors.blue,
+                  foregroundColor: Colors.white,
+                  padding: const EdgeInsets.symmetric(vertical: 18),
+                  shape: RoundedRectangleBorder(
+                    borderRadius: BorderRadius.circular(15),
+                  ),
+                ),
+                child: _isSaving
+                    ? const CircularProgressIndicator(color: Colors.white)
+                    : const Text(
+                        'ULOŽIT ÚKON',
+                        style: TextStyle(fontWeight: FontWeight.bold),
+                      ),
+              ),
+            ),
             const SizedBox(height: 30),
           ],
         ),
@@ -2791,18 +4243,23 @@ class _HistoryPageState extends State<HistoryPage> {
                     enabledBorder: OutlineInputBorder(
                       borderRadius: BorderRadius.circular(15),
                       borderSide: BorderSide(
-                          color: isDark ? Colors.grey[800]! : Colors.grey[300]!,
-                          width: 1),
+                        color: isDark ? Colors.grey[800]! : Colors.grey[300]!,
+                        width: 1,
+                      ),
                     ),
                     focusedBorder: OutlineInputBorder(
                       borderRadius: BorderRadius.circular(15),
-                      borderSide: const BorderSide(color: Colors.blue, width: 2),
+                      borderSide: const BorderSide(
+                        color: Colors.blue,
+                        width: 2,
+                      ),
                     ),
                     border: OutlineInputBorder(
                       borderRadius: BorderRadius.circular(15),
                       borderSide: BorderSide(
-                          color: isDark ? Colors.grey[800]! : Colors.grey[300]!,
-                          width: 1),
+                        color: isDark ? Colors.grey[800]! : Colors.grey[300]!,
+                        width: 1,
+                      ),
                     ),
                     contentPadding: const EdgeInsets.symmetric(vertical: 15),
                   ),
@@ -2881,25 +4338,50 @@ class _HistoryPageState extends State<HistoryPage> {
                       title: Row(
                         mainAxisAlignment: MainAxisAlignment.spaceBetween,
                         children: [
-                          Text('${data['spz']}', style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 18)),
+                          Text(
+                            '${data['spz']}',
+                            style: const TextStyle(
+                              fontWeight: FontWeight.bold,
+                              fontSize: 18,
+                            ),
+                          ),
                           Container(
-                            padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 2),
+                            padding: const EdgeInsets.symmetric(
+                              horizontal: 8,
+                              vertical: 2,
+                            ),
                             decoration: BoxDecoration(
                               color: getStatusColor(stav).withOpacity(0.1),
                               borderRadius: BorderRadius.circular(8),
-                              border: Border.all(color: getStatusColor(stav), width: 0.5),
+                              border: Border.all(
+                                color: getStatusColor(stav),
+                                width: 0.5,
+                              ),
                             ),
-                            child: Text(stav, style: TextStyle(color: getStatusColor(stav), fontSize: 10, fontWeight: FontWeight.bold)),
-                          )
+                            child: Text(
+                              stav,
+                              style: TextStyle(
+                                color: getStatusColor(stav),
+                                fontSize: 10,
+                                fontWeight: FontWeight.bold,
+                              ),
+                            ),
+                          ),
                         ],
                       ),
                       subtitle: Padding(
                         padding: const EdgeInsets.only(top: 4.0),
                         child: Text(
-                          'Zakázka: ${data['cislo_zakazky']}' + 
-                          (data['znacka'] != null && data['znacka'].toString().isNotEmpty ? ' • ${data['znacka']} ${data['model'] ?? ''}' : '') +
-                          (data['vin'] != null && data['vin'].toString().isNotEmpty ? ' • VIN: ${data['vin']}' : '') +
-                          '\nČas příjmu: ${_formatDate(data['cas_prijeti'])}',
+                          'Zakázka: ${data['cislo_zakazky']}' +
+                              (data['znacka'] != null &&
+                                      data['znacka'].toString().isNotEmpty
+                                  ? ' • ${data['znacka']} ${data['model'] ?? ''}'
+                                  : '') +
+                              (data['vin'] != null &&
+                                      data['vin'].toString().isNotEmpty
+                                  ? ' • VIN: ${data['vin']}'
+                                  : '') +
+                              '\nČas příjmu: ${_formatDate(data['cas_prijeti'])}',
                         ),
                       ),
                       isThreeLine: true,
@@ -2916,75 +4398,259 @@ class _HistoryPageState extends State<HistoryPage> {
   }
 
   // --- DETAIL ZAKÁZKY (ČTENÍ PRO HISTORII) ---
-  void _showHistoryDetail(BuildContext context, Map<String, dynamic> data, bool isDark) {
+  void _showHistoryDetail(
+    BuildContext context,
+    Map<String, dynamic> data,
+    bool isDark,
+  ) {
     final stav = data['stav_vozidla'] as Map<String, dynamic>? ?? {};
-    final zakaznik = data['zakaznik'] as Map<String, dynamic>? ?? {}; 
+    final zakaznik = data['zakaznik'] as Map<String, dynamic>? ?? {};
     final rawUrls = data['fotografie_urls'];
     final Map<String, dynamic> imageUrlsByCategoryRaw = {};
-    if (rawUrls is Map) { imageUrlsByCategoryRaw.addAll(Map<String, dynamic>.from(rawUrls)); } 
-    else if (rawUrls is List) { imageUrlsByCategoryRaw['ostatni'] = rawUrls; }
+    if (rawUrls is Map) {
+      imageUrlsByCategoryRaw.addAll(Map<String, dynamic>.from(rawUrls));
+    } else if (rawUrls is List) {
+      imageUrlsByCategoryRaw['ostatni'] = rawUrls;
+    }
 
     final List<Map<String, String>> allPhotos = [];
     imageUrlsByCategoryRaw.forEach((key, urls) {
       final label = photoCategories[key]?['label'] ?? 'Ostatní';
-      for (var url in (urls as List)) { allPhotos.add({'url': url.toString(), 'label': label}); }
+      for (var url in (urls as List)) {
+        allPhotos.add({'url': url.toString(), 'label': label});
+      }
     });
 
-    String poskozeniText = (stav['poskozeni'] is List) ? (stav['poskozeni'] as List).join(', ') : (stav['poskozeni'] ?? 'Neuvedeno').toString();
+    String poskozeniText = (stav['poskozeni'] is List)
+        ? (stav['poskozeni'] as List).join(', ')
+        : (stav['poskozeni'] ?? 'Neuvedeno').toString();
 
     showModalBottomSheet(
       context: context,
       isScrollControlled: true,
       backgroundColor: isDark ? const Color(0xFF121212) : Colors.white,
-      shape: const RoundedRectangleBorder(borderRadius: BorderRadius.vertical(top: Radius.circular(25))),
+      shape: const RoundedRectangleBorder(
+        borderRadius: BorderRadius.vertical(top: Radius.circular(25)),
+      ),
       builder: (context) => Padding(
         padding: const EdgeInsets.all(30),
         child: Column(
           mainAxisSize: MainAxisSize.min,
           crossAxisAlignment: CrossAxisAlignment.start,
           children: [
-            Center(child: Container(width: 40, height: 4, decoration: BoxDecoration(color: Colors.grey[300], borderRadius: BorderRadius.circular(10)))),
+            Center(
+              child: Container(
+                width: 40,
+                height: 4,
+                decoration: BoxDecoration(
+                  color: Colors.grey[300],
+                  borderRadius: BorderRadius.circular(10),
+                ),
+              ),
+            ),
             const SizedBox(height: 20),
-            Row(mainAxisAlignment: MainAxisAlignment.spaceBetween, children: [
-              Text('Zakázka ${data['cislo_zakazky']}', style: const TextStyle(fontSize: 24, fontWeight: FontWeight.bold)),
-              IconButton(icon: const Icon(Icons.picture_as_pdf, color: Colors.redAccent, size: 28), onPressed: () => _exportHistoryToPdf(context, data), tooltip: 'Stáhnout PDF'),
-            ]),
-            Text('SPZ: ${data['spz']}', style: const TextStyle(fontSize: 18, color: Colors.blue, fontWeight: FontWeight.w500)),
-            if (data['vin'] != null && data['vin'].toString().isNotEmpty) Text('VIN: ${data['vin']}', style: const TextStyle(fontWeight: FontWeight.bold)),
-            Text('Přijato: ${_formatDate(data['cas_prijeti'])}', style: TextStyle(color: Colors.grey[600])),
-            
+            Row(
+              mainAxisAlignment: MainAxisAlignment.spaceBetween,
+              children: [
+                Text(
+                  'Zakázka ${data['cislo_zakazky']}',
+                  style: const TextStyle(
+                    fontSize: 24,
+                    fontWeight: FontWeight.bold,
+                  ),
+                ),
+                IconButton(
+                  icon: const Icon(
+                    Icons.picture_as_pdf,
+                    color: Colors.redAccent,
+                    size: 28,
+                  ),
+                  onPressed: () => _exportHistoryToPdf(context, data),
+                  tooltip: 'Stáhnout PDF',
+                ),
+              ],
+            ),
+            Text(
+              'SPZ: ${data['spz']}',
+              style: const TextStyle(
+                fontSize: 18,
+                color: Colors.blue,
+                fontWeight: FontWeight.w500,
+              ),
+            ),
+            if (data['vin'] != null && data['vin'].toString().isNotEmpty)
+              Text(
+                'VIN: ${data['vin']}',
+                style: const TextStyle(fontWeight: FontWeight.bold),
+              ),
+            Text(
+              'Přijato: ${_formatDate(data['cas_prijeti'])}',
+              style: TextStyle(color: Colors.grey[600]),
+            ),
+
             const Divider(height: 40),
-            
-            if (zakaznik.isNotEmpty && (zakaznik['jmeno']?.toString().isNotEmpty == true || zakaznik['ico']?.toString().isNotEmpty == true)) ...[
-              const Text('Zákazník:', style: TextStyle(fontWeight: FontWeight.bold, fontSize: 16)),
+
+            if (zakaznik.isNotEmpty &&
+                (zakaznik['jmeno']?.toString().isNotEmpty == true ||
+                    zakaznik['ico']?.toString().isNotEmpty == true)) ...[
+              const Text(
+                'Zákazník:',
+                style: TextStyle(fontWeight: FontWeight.bold, fontSize: 16),
+              ),
               const SizedBox(height: 15),
-              if (zakaznik['jmeno']?.toString().isNotEmpty == true) _buildDetailRow('Jméno / Firma:', zakaznik['jmeno'], Icons.person, Colors.blueGrey),
-              if (zakaznik['ico']?.toString().isNotEmpty == true) _buildDetailRow('IČO:', zakaznik['ico'], Icons.business, Colors.blueGrey),
-              if (zakaznik['adresa']?.toString().isNotEmpty == true) _buildDetailRow('Adresa:', zakaznik['adresa'], Icons.location_on, Colors.blueGrey),
-              if (zakaznik['telefon']?.toString().isNotEmpty == true) _buildDetailRow('Telefon:', zakaznik['telefon'], Icons.phone, Colors.blueGrey),
-              if (zakaznik['email']?.toString().isNotEmpty == true) _buildDetailRow('E-mail:', zakaznik['email'], Icons.email, Colors.blueGrey),
+              if (zakaznik['jmeno']?.toString().isNotEmpty == true)
+                _buildDetailRow(
+                  'Jméno / Firma:',
+                  zakaznik['jmeno'],
+                  Icons.person,
+                  Colors.blueGrey,
+                ),
+              if (zakaznik['ico']?.toString().isNotEmpty == true)
+                _buildDetailRow(
+                  'IČO:',
+                  zakaznik['ico'],
+                  Icons.business,
+                  Colors.blueGrey,
+                ),
+              if (zakaznik['adresa']?.toString().isNotEmpty == true)
+                _buildDetailRow(
+                  'Adresa:',
+                  zakaznik['adresa'],
+                  Icons.location_on,
+                  Colors.blueGrey,
+                ),
+              if (zakaznik['telefon']?.toString().isNotEmpty == true)
+                _buildDetailRow(
+                  'Telefon:',
+                  zakaznik['telefon'],
+                  Icons.phone,
+                  Colors.blueGrey,
+                ),
+              if (zakaznik['email']?.toString().isNotEmpty == true)
+                _buildDetailRow(
+                  'E-mail:',
+                  zakaznik['email'],
+                  Icons.email,
+                  Colors.blueGrey,
+                ),
               const Divider(height: 40),
             ],
 
-            const Text('Stav vozidla:', style: TextStyle(fontWeight: FontWeight.bold, fontSize: 16)),
+            const Text(
+              'Stav vozidla:',
+              style: TextStyle(fontWeight: FontWeight.bold, fontSize: 16),
+            ),
             const SizedBox(height: 15),
-            
-            if (data['znacka'] != null && data['znacka'].toString().isNotEmpty) _buildDetailRow('Značka:', data['znacka'], Icons.directions_car, Colors.blueGrey),
-            if (data['model'] != null && data['model'].toString().isNotEmpty) _buildDetailRow('Model:', data['model'], Icons.directions_car_filled, Colors.blueGrey),
-            if (data['rok_vyroby'] != null && data['rok_vyroby'].toString().isNotEmpty) _buildDetailRow('Rok výroby:', data['rok_vyroby'], Icons.calendar_today, Colors.blueGrey),
 
-            if (data['motorizace'] != null && data['motorizace'].toString().isNotEmpty) _buildDetailRow('Motor:', data['motorizace'], Icons.settings, Colors.blueGrey),
-            if (data['palivo_typ'] != null && data['palivo_typ'].toString().isNotEmpty) _buildDetailRow('Palivo:', data['palivo_typ'], Icons.local_gas_station, Colors.blueGrey),
-            if (data['prevodovka'] != null && data['prevodovka'].toString().isNotEmpty) _buildDetailRow('Převodovka:', data['prevodovka'], Icons.settings_input_component, Colors.blueGrey),
+            if (data['znacka'] != null && data['znacka'].toString().isNotEmpty)
+              _buildDetailRow(
+                'Značka:',
+                data['znacka'],
+                Icons.directions_car,
+                Colors.blueGrey,
+              ),
+            if (data['model'] != null && data['model'].toString().isNotEmpty)
+              _buildDetailRow(
+                'Model:',
+                data['model'],
+                Icons.directions_car_filled,
+                Colors.blueGrey,
+              ),
+            if (data['rok_vyroby'] != null &&
+                data['rok_vyroby'].toString().isNotEmpty)
+              _buildDetailRow(
+                'Rok výroby:',
+                data['rok_vyroby'],
+                Icons.calendar_today,
+                Colors.blueGrey,
+              ),
 
-            _buildDetailRow('Tachometr:', '${stav['tachometr'] ?? '-'} km', Icons.speed, Colors.grey),
-            _buildDetailRow('Palivo:', '${stav['nadrz']?.toInt() ?? '-'} %', Icons.local_gas_station, Colors.blueGrey),
-            _buildDetailRow('Poškození:', poskozeniText, Icons.warning_amber_rounded, Colors.orange),
-            
+            if (data['motorizace'] != null &&
+                data['motorizace'].toString().isNotEmpty)
+              _buildDetailRow(
+                'Motor:',
+                data['motorizace'],
+                Icons.settings,
+                Colors.blueGrey,
+              ),
+            if (data['palivo_typ'] != null &&
+                data['palivo_typ'].toString().isNotEmpty)
+              _buildDetailRow(
+                'Palivo:',
+                data['palivo_typ'],
+                Icons.local_gas_station,
+                Colors.blueGrey,
+              ),
+            if (data['prevodovka'] != null &&
+                data['prevodovka'].toString().isNotEmpty)
+              _buildDetailRow(
+                'Převodovka:',
+                data['prevodovka'],
+                Icons.settings_input_component,
+                Colors.blueGrey,
+              ),
+
+            _buildDetailRow(
+              'Tachometr:',
+              '${stav['tachometr'] ?? '-'} km',
+              Icons.speed,
+              Colors.grey,
+            ),
+            _buildDetailRow(
+              'Palivo:',
+              '${stav['nadrz']?.toInt() ?? '-'} %',
+              Icons.local_gas_station,
+              Colors.blueGrey,
+            ),
+            _buildDetailRow(
+              'Poškození:',
+              poskozeniText,
+              Icons.warning_amber_rounded,
+              Colors.orange,
+            ),
+
             const SizedBox(height: 20),
-            const Text('Fotografie z příjmu:', style: TextStyle(fontWeight: FontWeight.bold)),
+            const Text(
+              'Fotografie z příjmu:',
+              style: TextStyle(fontWeight: FontWeight.bold),
+            ),
             const SizedBox(height: 10),
-            if (allPhotos.isEmpty) const Text('Žádné fotky.') else SizedBox(height: 150, child: ListView.separated(scrollDirection: Axis.horizontal, itemCount: allPhotos.length, separatorBuilder: (c, i) => const SizedBox(width: 15), itemBuilder: (c, i) => GestureDetector(onTap: () => html.window.open(allPhotos[i]['url']!, "_blank"), child: Column(children: [ClipRRect(borderRadius: BorderRadius.circular(10), child: Image.network(allPhotos[i]['url']!, width: 180, height: 120, fit: BoxFit.cover)), const SizedBox(height: 4), Text(allPhotos[i]['label']!, style: const TextStyle(fontSize: 10, color: Colors.blue))])))),
+            if (allPhotos.isEmpty)
+              const Text('Žádné fotky.')
+            else
+              SizedBox(
+                height: 150,
+                child: ListView.separated(
+                  scrollDirection: Axis.horizontal,
+                  itemCount: allPhotos.length,
+                  separatorBuilder: (c, i) => const SizedBox(width: 15),
+                  itemBuilder: (c, i) => GestureDetector(
+                    onTap: () =>
+                        html.window.open(allPhotos[i]['url']!, "_blank"),
+                    child: Column(
+                      children: [
+                        ClipRRect(
+                          borderRadius: BorderRadius.circular(10),
+                          child: Image.network(
+                            allPhotos[i]['url']!,
+                            width: 180,
+                            height: 120,
+                            fit: BoxFit.cover,
+                          ),
+                        ),
+                        const SizedBox(height: 4),
+                        Text(
+                          allPhotos[i]['label']!,
+                          style: const TextStyle(
+                            fontSize: 10,
+                            color: Colors.blue,
+                          ),
+                        ),
+                      ],
+                    ),
+                  ),
+                ),
+              ),
             const SizedBox(height: 40),
           ],
         ),
@@ -2992,9 +4658,30 @@ class _HistoryPageState extends State<HistoryPage> {
     );
   }
 
-  Widget _buildDetailRow(String l, String v, IconData i, Color c) => Padding(padding: const EdgeInsets.only(bottom: 12), child: Row(crossAxisAlignment: CrossAxisAlignment.start, children: [Icon(i, color: c, size: 20), const SizedBox(width: 10), Text(l, style: const TextStyle(color: Colors.grey)), const SizedBox(width: 10), Expanded(child: Text(v, style: const TextStyle(fontWeight: FontWeight.bold)))]));
+  Widget _buildDetailRow(String l, String v, IconData i, Color c) => Padding(
+    padding: const EdgeInsets.only(bottom: 12),
+    child: Row(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        Icon(i, color: c, size: 20),
+        const SizedBox(width: 10),
+        Text(l, style: const TextStyle(color: Colors.grey)),
+        const SizedBox(width: 10),
+        Expanded(
+          child: Text(v, style: const TextStyle(fontWeight: FontWeight.bold)),
+        ),
+      ],
+    ),
+  );
 
-  pw.Widget _buildCompactRow(String label1, String value1, String label2, String value2, pw.Font fontReg, pw.Font fontBld) {
+  pw.Widget _buildCompactRow(
+    String label1,
+    String value1,
+    String label2,
+    String value2,
+    pw.Font fontReg,
+    pw.Font fontBld,
+  ) {
     return pw.Padding(
       padding: const pw.EdgeInsets.only(bottom: 4),
       child: pw.Row(
@@ -3003,10 +4690,22 @@ class _HistoryPageState extends State<HistoryPage> {
             child: pw.Row(
               crossAxisAlignment: pw.CrossAxisAlignment.start,
               children: [
-                pw.Text(label1, style: pw.TextStyle(font: fontReg, fontSize: 10, color: PdfColors.grey700)),
+                pw.Text(
+                  label1,
+                  style: pw.TextStyle(
+                    font: fontReg,
+                    fontSize: 10,
+                    color: PdfColors.grey700,
+                  ),
+                ),
                 pw.SizedBox(width: 4),
-                pw.Expanded(child: pw.Text(value1, style: pw.TextStyle(font: fontBld, fontSize: 11))),
-              ]
+                pw.Expanded(
+                  child: pw.Text(
+                    value1,
+                    style: pw.TextStyle(font: fontBld, fontSize: 11),
+                  ),
+                ),
+              ],
             ),
           ),
           if (label2.isNotEmpty)
@@ -3014,26 +4713,61 @@ class _HistoryPageState extends State<HistoryPage> {
               child: pw.Row(
                 crossAxisAlignment: pw.CrossAxisAlignment.start,
                 children: [
-                  pw.Text(label2, style: pw.TextStyle(font: fontReg, fontSize: 10, color: PdfColors.grey700)),
+                  pw.Text(
+                    label2,
+                    style: pw.TextStyle(
+                      font: fontReg,
+                      fontSize: 10,
+                      color: PdfColors.grey700,
+                    ),
+                  ),
                   pw.SizedBox(width: 4),
-                  pw.Expanded(child: pw.Text(value2, style: pw.TextStyle(font: fontBld, fontSize: 11))),
-                ]
+                  pw.Expanded(
+                    child: pw.Text(
+                      value2,
+                      style: pw.TextStyle(font: fontBld, fontSize: 11),
+                    ),
+                  ),
+                ],
               ),
             )
           else
             pw.Expanded(child: pw.SizedBox()),
-        ]
-      )
+        ],
+      ),
     );
   }
 
-  Future<void> _exportHistoryToPdf(BuildContext context, Map<String, dynamic> data) async {
-    ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('Generuji PDF...'), duration: Duration(seconds: 1)));
-    
+  Future<void> _exportHistoryToPdf(
+    BuildContext context,
+    Map<String, dynamic> data,
+  ) async {
+    ScaffoldMessenger.of(context).showSnackBar(
+      const SnackBar(
+        content: Text('Generuji PDF...'),
+        duration: Duration(seconds: 1),
+      ),
+    );
+
+    // --- Načtení hlavičky servisu z nastavení ---
+    final user = FirebaseAuth.instance.currentUser;
+    String hlavickaNazev = 'VISTO';
+    String hlavickaIco = '';
+    if (user != null) {
+      final nastaveniDoc = await FirebaseFirestore.instance
+          .collection('nastaveni_servisu')
+          .doc(user.uid)
+          .get();
+      if (nastaveniDoc.exists) {
+        hlavickaNazev = nastaveniDoc.data()?['nazev_servisu'] ?? 'VISTO';
+        hlavickaIco = nastaveniDoc.data()?['ico_servisu'] ?? '';
+      }
+    }
+
     final stav = data['stav_vozidla'] as Map<String, dynamic>? ?? {};
-    final zakaznik = data['zakaznik'] as Map<String, dynamic>? ?? {}; 
+    final zakaznik = data['zakaznik'] as Map<String, dynamic>? ?? {};
     final provedenePrace = data['provedene_prace'] as List<dynamic>? ?? [];
-    final podpisUrl = data['podpis_url'] as String?; 
+    final podpisUrl = data['podpis_url'] as String?;
     pw.MemoryImage? podpisImage;
 
     if (podpisUrl != null) {
@@ -3052,8 +4786,10 @@ class _HistoryPageState extends State<HistoryPage> {
     final fontBold = await PdfGoogleFonts.robotoBold();
 
     String poskozeniPdfText = 'Neuvedeno';
-    if (stav['poskozeni'] is List) poskozeniPdfText = (stav['poskozeni'] as List).join(', ');
-    else if (stav['poskozeni'] != null) poskozeniPdfText = stav['poskozeni'].toString();
+    if (stav['poskozeni'] is List)
+      poskozeniPdfText = (stav['poskozeni'] as List).join(', ');
+    else if (stav['poskozeni'] != null)
+      poskozeniPdfText = stav['poskozeni'].toString();
 
     pdf.addPage(
       pw.MultiPage(
@@ -3066,119 +4802,376 @@ class _HistoryPageState extends State<HistoryPage> {
               child: pw.Row(
                 mainAxisAlignment: pw.MainAxisAlignment.spaceBetween,
                 children: [
-                  pw.Text('VISTO', style: pw.TextStyle(font: fontBold, fontSize: 28, color: PdfColors.blue800)),
-                  pw.Text('Protokol o příjmu a opravě', style: pw.TextStyle(font: fontRegular, fontSize: 20, color: PdfColors.grey600)),
+                  pw.Column(
+                    crossAxisAlignment: pw.CrossAxisAlignment.start,
+                    children: [
+                      pw.Text(
+                        hlavickaNazev,
+                        style: pw.TextStyle(
+                          font: fontBold,
+                          fontSize: 24,
+                          color: PdfColors.blue800,
+                        ),
+                      ),
+                      if (hlavickaIco.isNotEmpty)
+                        pw.Text(
+                          'IČO: $hlavickaIco',
+                          style: pw.TextStyle(
+                            font: fontRegular,
+                            fontSize: 10,
+                            color: PdfColors.grey700,
+                          ),
+                        ),
+                    ],
+                  ),
+                  pw.Text(
+                    'Protokol o příjmu a opravě',
+                    style: pw.TextStyle(
+                      font: fontRegular,
+                      fontSize: 20,
+                      color: PdfColors.grey600,
+                    ),
+                  ),
                 ],
               ),
             ),
             pw.SizedBox(height: 15),
 
-            if (zakaznik.isNotEmpty && (zakaznik['jmeno']?.toString().isNotEmpty == true || zakaznik['ico']?.toString().isNotEmpty == true)) ...[
+            if (zakaznik.isNotEmpty &&
+                (zakaznik['jmeno']?.toString().isNotEmpty == true ||
+                    zakaznik['ico']?.toString().isNotEmpty == true)) ...[
               pw.Container(
                 padding: const pw.EdgeInsets.all(10),
-                decoration: pw.BoxDecoration(color: PdfColors.blue50, borderRadius: pw.BorderRadius.circular(8)),
+                decoration: pw.BoxDecoration(
+                  color: PdfColors.blue50,
+                  borderRadius: pw.BorderRadius.circular(8),
+                ),
                 child: pw.Column(
                   crossAxisAlignment: pw.CrossAxisAlignment.start,
                   children: [
-                    pw.Text('Údaje o zákazníkovi', style: pw.TextStyle(font: fontBold, fontSize: 12, color: PdfColors.blue800)),
+                    pw.Text(
+                      'Údaje o zákazníkovi',
+                      style: pw.TextStyle(
+                        font: fontBold,
+                        fontSize: 12,
+                        color: PdfColors.blue800,
+                      ),
+                    ),
                     pw.SizedBox(height: 5),
-                    _buildCompactRow('Jméno / Firma:', zakaznik['jmeno']?.toString() ?? '-', 'IČO:', zakaznik['ico']?.toString() ?? '-', fontRegular, fontBold),
-                    _buildCompactRow('Adresa:', zakaznik['adresa']?.toString() ?? '-', 'Telefon:', zakaznik['telefon']?.toString() ?? '-', fontRegular, fontBold),
-                    _buildCompactRow('E-mail:', zakaznik['email']?.toString() ?? '-', '', '', fontRegular, fontBold),
-                  ]
-                )
+                    _buildCompactRow(
+                      'Jméno / Firma:',
+                      zakaznik['jmeno']?.toString() ?? '-',
+                      'IČO:',
+                      zakaznik['ico']?.toString() ?? '-',
+                      fontRegular,
+                      fontBold,
+                    ),
+                    _buildCompactRow(
+                      'Adresa:',
+                      zakaznik['adresa']?.toString() ?? '-',
+                      'Telefon:',
+                      zakaznik['telefon']?.toString() ?? '-',
+                      fontRegular,
+                      fontBold,
+                    ),
+                    _buildCompactRow(
+                      'E-mail:',
+                      zakaznik['email']?.toString() ?? '-',
+                      '',
+                      '',
+                      fontRegular,
+                      fontBold,
+                    ),
+                  ],
+                ),
               ),
               pw.SizedBox(height: 15),
             ],
 
             pw.Container(
               padding: const pw.EdgeInsets.all(10),
-              decoration: pw.BoxDecoration(color: PdfColors.grey100, borderRadius: pw.BorderRadius.circular(8)),
+              decoration: pw.BoxDecoration(
+                color: PdfColors.grey100,
+                borderRadius: pw.BorderRadius.circular(8),
+              ),
               child: pw.Column(
                 crossAxisAlignment: pw.CrossAxisAlignment.start,
                 children: [
-                  pw.Text('Údaje o vozidle', style: pw.TextStyle(font: fontBold, fontSize: 12, color: PdfColors.grey800)),
+                  pw.Text(
+                    'Údaje o vozidle',
+                    style: pw.TextStyle(
+                      font: fontBold,
+                      fontSize: 12,
+                      color: PdfColors.grey800,
+                    ),
+                  ),
                   pw.SizedBox(height: 5),
-                  _buildCompactRow('Zakázka č.:', data['cislo_zakazky'].toString(), 'Přijato:', _formatDate(data['cas_prijeti']), fontRegular, fontBold),
-                  _buildCompactRow('SPZ:', data['spz'].toString(), 'VIN:', data['vin']?.toString() ?? '-', fontRegular, fontBold),
-                  _buildCompactRow('Značka:', data['znacka']?.toString() ?? '-', 'Model:', data['model']?.toString() ?? '-', fontRegular, fontBold),
-                  _buildCompactRow('Rok výroby:', data['rok_vyroby']?.toString() ?? '-', 'Motorizace:', data['motorizace']?.toString() ?? '-', fontRegular, fontBold),
-                  _buildCompactRow('Typ paliva:', data['palivo_typ']?.toString() ?? '-', 'Převodovka:', data['prevodovka']?.toString() ?? '-', fontRegular, fontBold),
-                ]
-              )
-            ),
-            pw.SizedBox(height: 20),
-
-            pw.Text('Stav vozidla při příjmu', style: pw.TextStyle(font: fontBold, fontSize: 14)),
-            pw.SizedBox(height: 8),
-            _buildCompactRow('Tachometr:', '${stav['tachometr']?.toString().isNotEmpty == true ? stav['tachometr'] : '-'} km', 'Palivo v nádrži:', '${stav['nadrz']?.toInt() ?? '-'} %', fontRegular, fontBold),
-            _buildCompactRow('Platnost STK:', '${stav['stk_mesic'] ?? '-'} / ${stav['stk_rok'] ?? '-'}', 'Poškození:', poskozeniPdfText, fontRegular, fontBold),
-            pw.SizedBox(height: 15),
-
-            pw.Text('Hloubka dezénu pneu:', style: pw.TextStyle(font: fontBold, fontSize: 12)),
-            pw.SizedBox(height: 5),
-            pw.Container(
-              padding: const pw.EdgeInsets.all(8),
-              decoration: pw.BoxDecoration(border: pw.Border.all(color: PdfColors.grey300), borderRadius: pw.BorderRadius.circular(8)),
-              child: pw.Row(
-                mainAxisAlignment: pw.MainAxisAlignment.spaceAround,
-                children: [
-                  pw.Column(children: [pw.Text('Levá Přední', style: pw.TextStyle(font: fontRegular, color: PdfColors.grey600, fontSize: 9)), pw.Text('${stav['pneu_lp'] ?? '-'} mm', style: pw.TextStyle(font: fontBold, fontSize: 11))]),
-                  pw.Column(children: [pw.Text('Pravá Přední', style: pw.TextStyle(font: fontRegular, color: PdfColors.grey600, fontSize: 9)), pw.Text('${stav['pneu_pp'] ?? '-'} mm', style: pw.TextStyle(font: fontBold, fontSize: 11))]),
-                  pw.Column(children: [pw.Text('Levá Zadní', style: pw.TextStyle(font: fontRegular, color: PdfColors.grey600, fontSize: 9)), pw.Text('${stav['pneu_lz'] ?? '-'} mm', style: pw.TextStyle(font: fontBold, fontSize: 11))]),
-                  pw.Column(children: [pw.Text('Pravá Zadní', style: pw.TextStyle(font: fontRegular, color: PdfColors.grey600, fontSize: 9)), pw.Text('${stav['pneu_pz'] ?? '-'} mm', style: pw.TextStyle(font: fontBold, fontSize: 11))]),
+                  _buildCompactRow(
+                    'Zakázka č.:',
+                    data['cislo_zakazky'].toString(),
+                    'Přijato:',
+                    _formatDate(data['cas_prijeti']),
+                    fontRegular,
+                    fontBold,
+                  ),
+                  _buildCompactRow(
+                    'SPZ:',
+                    data['spz'].toString(),
+                    'VIN:',
+                    data['vin']?.toString() ?? '-',
+                    fontRegular,
+                    fontBold,
+                  ),
+                  _buildCompactRow(
+                    'Značka:',
+                    data['znacka']?.toString() ?? '-',
+                    'Model:',
+                    data['model']?.toString() ?? '-',
+                    fontRegular,
+                    fontBold,
+                  ),
+                  _buildCompactRow(
+                    'Rok výroby:',
+                    data['rok_vyroby']?.toString() ?? '-',
+                    'Motorizace:',
+                    data['motorizace']?.toString() ?? '-',
+                    fontRegular,
+                    fontBold,
+                  ),
+                  _buildCompactRow(
+                    'Typ paliva:',
+                    data['palivo_typ']?.toString() ?? '-',
+                    'Převodovka:',
+                    data['prevodovka']?.toString() ?? '-',
+                    fontRegular,
+                    fontBold,
+                  ),
                 ],
               ),
             ),
             pw.SizedBox(height: 20),
 
-            if (data['poznamky'] != null && data['poznamky'].toString().isNotEmpty) ...[
-              pw.Text('Poznámky k příjmu:', style: pw.TextStyle(font: fontBold, fontSize: 12)),
+            pw.Text(
+              'Stav vozidla při příjmu',
+              style: pw.TextStyle(font: fontBold, fontSize: 14),
+            ),
+            pw.SizedBox(height: 8),
+            _buildCompactRow(
+              'Tachometr:',
+              '${stav['tachometr']?.toString().isNotEmpty == true ? stav['tachometr'] : '-'} km',
+              'Palivo v nádrži:',
+              '${stav['nadrz']?.toInt() ?? '-'} %',
+              fontRegular,
+              fontBold,
+            ),
+            _buildCompactRow(
+              'Platnost STK:',
+              '${stav['stk_mesic'] ?? '-'} / ${stav['stk_rok'] ?? '-'}',
+              'Poškození:',
+              poskozeniPdfText,
+              fontRegular,
+              fontBold,
+            ),
+            pw.SizedBox(height: 15),
+
+            pw.Text(
+              'Hloubka dezénu pneu:',
+              style: pw.TextStyle(font: fontBold, fontSize: 12),
+            ),
+            pw.SizedBox(height: 5),
+            pw.Container(
+              padding: const pw.EdgeInsets.all(8),
+              decoration: pw.BoxDecoration(
+                border: pw.Border.all(color: PdfColors.grey300),
+                borderRadius: pw.BorderRadius.circular(8),
+              ),
+              child: pw.Row(
+                mainAxisAlignment: pw.MainAxisAlignment.spaceAround,
+                children: [
+                  pw.Column(
+                    children: [
+                      pw.Text(
+                        'Levá Přední',
+                        style: pw.TextStyle(
+                          font: fontRegular,
+                          color: PdfColors.grey600,
+                          fontSize: 9,
+                        ),
+                      ),
+                      pw.Text(
+                        '${stav['pneu_lp'] ?? '-'} mm',
+                        style: pw.TextStyle(font: fontBold, fontSize: 11),
+                      ),
+                    ],
+                  ),
+                  pw.Column(
+                    children: [
+                      pw.Text(
+                        'Pravá Přední',
+                        style: pw.TextStyle(
+                          font: fontRegular,
+                          color: PdfColors.grey600,
+                          fontSize: 9,
+                        ),
+                      ),
+                      pw.Text(
+                        '${stav['pneu_pp'] ?? '-'} mm',
+                        style: pw.TextStyle(font: fontBold, fontSize: 11),
+                      ),
+                    ],
+                  ),
+                  pw.Column(
+                    children: [
+                      pw.Text(
+                        'Levá Zadní',
+                        style: pw.TextStyle(
+                          font: fontRegular,
+                          color: PdfColors.grey600,
+                          fontSize: 9,
+                        ),
+                      ),
+                      pw.Text(
+                        '${stav['pneu_lz'] ?? '-'} mm',
+                        style: pw.TextStyle(font: fontBold, fontSize: 11),
+                      ),
+                    ],
+                  ),
+                  pw.Column(
+                    children: [
+                      pw.Text(
+                        'Pravá Zadní',
+                        style: pw.TextStyle(
+                          font: fontRegular,
+                          color: PdfColors.grey600,
+                          fontSize: 9,
+                        ),
+                      ),
+                      pw.Text(
+                        '${stav['pneu_pz'] ?? '-'} mm',
+                        style: pw.TextStyle(font: fontBold, fontSize: 11),
+                      ),
+                    ],
+                  ),
+                ],
+              ),
+            ),
+            pw.SizedBox(height: 20),
+
+            if (data['poznamky'] != null &&
+                data['poznamky'].toString().isNotEmpty) ...[
+              pw.Text(
+                'Poznámky k příjmu:',
+                style: pw.TextStyle(font: fontBold, fontSize: 12),
+              ),
               pw.SizedBox(height: 5),
-              pw.Text(data['poznamky'].toString(), style: pw.TextStyle(font: fontRegular, fontSize: 11, color: PdfColors.grey800)),
+              pw.Text(
+                data['poznamky'].toString(),
+                style: pw.TextStyle(
+                  font: fontRegular,
+                  fontSize: 11,
+                  color: PdfColors.grey800,
+                ),
+              ),
               pw.SizedBox(height: 20),
             ],
 
             if (provedenePrace.isNotEmpty) ...[
               pw.NewPage(),
-              pw.Text('Záznam o opravě a dodané díly', style: pw.TextStyle(font: fontBold, fontSize: 18, color: PdfColors.blue800)),
+              pw.Text(
+                'Záznam o opravě a dodané díly',
+                style: pw.TextStyle(
+                  font: fontBold,
+                  fontSize: 18,
+                  color: PdfColors.blue800,
+                ),
+              ),
               pw.SizedBox(height: 15),
               ...provedenePrace.map((prace) {
-                final pocetFotek = (prace['fotografie_urls'] as List?)?.length ?? 0;
+                final pocetFotek =
+                    (prace['fotografie_urls'] as List?)?.length ?? 0;
                 final dily = prace['pouzite_dily'] as List<dynamic>? ?? [];
-                
+
                 return pw.Container(
                   margin: const pw.EdgeInsets.only(bottom: 15),
                   padding: const pw.EdgeInsets.all(10),
-                  decoration: pw.BoxDecoration(color: PdfColors.grey50, border: pw.Border.all(color: PdfColors.grey300), borderRadius: pw.BorderRadius.circular(8)),
+                  decoration: pw.BoxDecoration(
+                    color: PdfColors.grey50,
+                    border: pw.Border.all(color: PdfColors.grey300),
+                    borderRadius: pw.BorderRadius.circular(8),
+                  ),
                   child: pw.Column(
                     crossAxisAlignment: pw.CrossAxisAlignment.start,
                     children: [
                       pw.Row(
                         mainAxisAlignment: pw.MainAxisAlignment.spaceBetween,
                         children: [
-                          pw.Text('${prace['nazev']} (Cena úkonu: ${prace['cena_s_dph']} Kč s DPH)', style: pw.TextStyle(font: fontBold, fontSize: 14)),
-                          pw.Text(_formatDate(prace['cas']), style: pw.TextStyle(font: fontRegular, fontSize: 10, color: PdfColors.grey600)),
+                          pw.Text(
+                            '${prace['nazev']} (Cena úkonu: ${prace['cena_s_dph']} Kč s DPH)',
+                            style: pw.TextStyle(font: fontBold, fontSize: 14),
+                          ),
+                          pw.Text(
+                            _formatDate(prace['cas']),
+                            style: pw.TextStyle(
+                              font: fontRegular,
+                              fontSize: 10,
+                              color: PdfColors.grey600,
+                            ),
+                          ),
                         ],
                       ),
-                      if (prace['delka_prace'] != null && prace['delka_prace'].toString().isNotEmpty)
-                        pw.Text('Délka práce: ${prace['delka_prace']}', style: pw.TextStyle(font: fontRegular, fontSize: 11, color: PdfColors.grey700)),
-                      if (prace['popis'] != null && prace['popis'].toString().isNotEmpty) ...[
+                      if (prace['delka_prace'] != null &&
+                          prace['delka_prace'].toString().isNotEmpty)
+                        pw.Text(
+                          'Délka práce: ${prace['delka_prace']} h',
+                          style: pw.TextStyle(
+                            font: fontRegular,
+                            fontSize: 11,
+                            color: PdfColors.grey700,
+                          ),
+                        ),
+                      if (prace['popis'] != null &&
+                          prace['popis'].toString().isNotEmpty) ...[
                         pw.SizedBox(height: 5),
-                        pw.Text(prace['popis'].toString(), style: pw.TextStyle(font: fontRegular, fontSize: 11)),
+                        pw.Text(
+                          prace['popis'].toString(),
+                          style: pw.TextStyle(font: fontRegular, fontSize: 11),
+                        ),
                       ],
                       if (dily.isNotEmpty) ...[
                         pw.SizedBox(height: 8),
-                        pw.Text('Použité díly:', style: pw.TextStyle(font: fontBold, fontSize: 11)),
-                        ...dily.map((dil) => pw.Padding(
-                          padding: const pw.EdgeInsets.only(top: 2, left: 10),
-                          child: pw.Text('• ${dil['nazev']} (${dil['cislo']}) - ${dil['pocet']} ks - ${dil['cena_s_dph']} Kč s DPH', style: pw.TextStyle(font: fontRegular, fontSize: 10))
-                        )).toList(),
+                        pw.Text(
+                          'Použité díly:',
+                          style: pw.TextStyle(font: fontBold, fontSize: 11),
+                        ),
+                        ...dily
+                            .map(
+                              (dil) => pw.Padding(
+                                padding: const pw.EdgeInsets.only(
+                                  top: 2,
+                                  left: 10,
+                                ),
+                                child: pw.Text(
+                                  '• ${dil['nazev']} (${dil['cislo']}) - ${dil['pocet']} ks - ${dil['cena_s_dph']} Kč s DPH',
+                                  style: pw.TextStyle(
+                                    font: fontRegular,
+                                    fontSize: 10,
+                                  ),
+                                ),
+                              ),
+                            )
+                            .toList(),
                       ],
                       if (pocetFotek > 0) ...[
                         pw.SizedBox(height: 5),
-                        pw.Text('Pořízená fotodokumentace: $pocetFotek fotek', style: pw.TextStyle(font: fontRegular, fontSize: 10, color: PdfColors.blue)),
-                      ]
+                        pw.Text(
+                          'Pořízená fotodokumentace: $pocetFotek fotek',
+                          style: pw.TextStyle(
+                            font: fontRegular,
+                            fontSize: 10,
+                            color: PdfColors.blue,
+                          ),
+                        ),
+                      ],
                     ],
                   ),
                 );
@@ -3198,23 +5191,49 @@ class _HistoryPageState extends State<HistoryPage> {
                   pw.Column(
                     crossAxisAlignment: pw.CrossAxisAlignment.start,
                     children: [
-                      pw.Text('Podpis zákazníka:', style: pw.TextStyle(font: fontBold, fontSize: 12)),
+                      pw.Text(
+                        'Podpis zákazníka:',
+                        style: pw.TextStyle(font: fontBold, fontSize: 12),
+                      ),
                       pw.SizedBox(height: 5),
                       pw.Image(podpisImage, width: 150, height: 60),
-                      pw.Container(width: 150, height: 1, color: PdfColors.black),
-                    ]
+                      pw.Container(
+                        width: 150,
+                        height: 1,
+                        color: PdfColors.black,
+                      ),
+                    ],
                   ),
-                  pw.Text('Vygenerováno aplikací Visto', style: pw.TextStyle(font: fontRegular, fontSize: 10, color: PdfColors.grey500)),
-                ]
-              )
+                  pw.Text(
+                    'Vygenerováno aplikací Visto',
+                    style: pw.TextStyle(
+                      font: fontRegular,
+                      fontSize: 10,
+                      color: PdfColors.grey500,
+                    ),
+                  ),
+                ],
+              ),
             ] else ...[
-               pw.Center(child: pw.Text('Vygenerováno aplikací Visto', style: pw.TextStyle(font: fontRegular, fontSize: 10, color: PdfColors.grey500))),
-            ]
+              pw.Center(
+                child: pw.Text(
+                  'Vygenerováno aplikací Visto',
+                  style: pw.TextStyle(
+                    font: fontRegular,
+                    fontSize: 10,
+                    color: PdfColors.grey500,
+                  ),
+                ),
+              ),
+            ],
           ];
         },
       ),
     );
 
-    await Printing.sharePdf(bytes: await pdf.save(), filename: 'Protokol_${data['cislo_zakazky']}.pdf');
+    await Printing.sharePdf(
+      bytes: await pdf.save(),
+      filename: 'Protokol_${data['cislo_zakazky']}.pdf',
+    );
   }
 }
