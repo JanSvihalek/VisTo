@@ -6,6 +6,10 @@ import 'dart:io'; // Pro práci se soubory na mobilu (File)
 import 'package:intl/intl.dart'; // Pro formátování data
 import 'dart:html' as html; // Pro stahování/otevírání fotek na webu
 
+// --- NOVÉ: KNIHOVNY PRO ARES ---
+import 'package:http/http.dart' as http;
+import 'dart:convert';
+
 // --- KNIHOVNY PRO PDF EXPORT ---
 import 'package:pdf/pdf.dart';
 import 'package:pdf/widgets.dart' as pw;
@@ -380,8 +384,9 @@ class MainWizardPage extends StatefulWidget {
 class _MainWizardPageState extends State<MainWizardPage> {
   final PageController _pageController = PageController();
   int _currentPage = 0;
-  final int _totalPages = 4; // Zvýšeno na 4 (přidán zákazník)
+  final int _totalPages = 4;
   bool _isUploading = false;
+  bool _isLoadingAres = false; // NOVÉ: Stav načítání ARES
 
   // --- Zákazník ---
   final _jmenoController = TextEditingController();
@@ -419,10 +424,48 @@ class _MainWizardPageState extends State<MainWizardPage> {
   final _pneuLZController = TextEditingController();
   final _pneuPZController = TextEditingController();
 
+  // --- NOVÉ: Funkce pro načtení dat z ARES ---
+  Future<void> _fetchAresData() async {
+    final ico = _icoController.text.trim();
+    if (ico.isEmpty || ico.length != 8) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(content: Text('Zadejte platné 8místné IČO.'), backgroundColor: Colors.orange),
+      );
+      return;
+    }
+
+    setState(() => _isLoadingAres = true);
+
+    try {
+      final response = await http.get(Uri.parse('https://ares.gov.cz/ekonomicke-subjekty-v-be/rest/ekonomicke-subjekty/$ico'));
+      if (response.statusCode == 200) {
+        final data = json.decode(utf8.decode(response.bodyBytes));
+        setState(() {
+          _jmenoController.text = data['obchodniJmeno'] ?? '';
+          final sidlo = data['sidlo'] ?? {};
+          final ulice = sidlo['textovaAdresa'] ?? '';
+          _adresaController.text = ulice;
+        });
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(content: Text('Údaje z ARES byly úspěšně načteny.'), backgroundColor: Colors.green),
+        );
+      } else {
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(content: Text('Zadané IČO nebylo v registru ARES nalezeno.'), backgroundColor: Colors.red),
+        );
+      }
+    } catch (e) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(content: Text('Chyba při komunikaci s ARES: $e'), backgroundColor: Colors.red),
+      );
+    } finally {
+      setState(() => _isLoadingAres = false);
+    }
+  }
+
   void _moveNext() {
     FocusScope.of(context).unfocus();
 
-    // Validace Kroku 2 (Vozidlo)
     if (_currentPage == 1) {
       if (_zakazkaController.text.trim().isEmpty ||
           _spzController.text.trim().isEmpty) {
@@ -517,7 +560,6 @@ class _MainWizardPageState extends State<MainWizardPage> {
       'cislo_zakazky': zakazkaId,
       'spz': _spzController.text.trim(),
       'vin': _vinController.text.trim(),
-      // NOVÉ: Zákazník
       'zakaznik': {
         'jmeno': _jmenoController.text.trim(),
         'ico': _icoController.text.trim(),
@@ -675,8 +717,8 @@ class _MainWizardPageState extends State<MainWizardPage> {
                 onPageChanged: (idx) => setState(() => _currentPage = idx),
                 physics: const NeverScrollableScrollPhysics(),
                 children: [
-                  _buildZakaznikStep(isDark), // Nový krok 1
-                  _buildVozidloStep(isDark),  // Bývalý InfoStep
+                  _buildZakaznikStep(isDark), 
+                  _buildVozidloStep(isDark),  
                   _buildPhotoStep(isDark),
                   _buildCheckStep(isDark),
                 ],
@@ -712,7 +754,7 @@ class _MainWizardPageState extends State<MainWizardPage> {
     );
   }
 
-  // --- NOVÉ: 1. Krok (Zákazník) ---
+  // --- UPRAVENO: 1. Krok (Zákazník s ARES) ---
   Widget _buildZakaznikStep(bool isDark) => SingleChildScrollView(
         padding: const EdgeInsets.all(30),
         child: Column(
@@ -723,19 +765,77 @@ class _MainWizardPageState extends State<MainWizardPage> {
               style: TextStyle(fontSize: 32, fontWeight: FontWeight.bold),
             ),
             const SizedBox(height: 40),
+            
+            // Speciální IČO pole s ARES lupou
+            Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                const Text(
+                  'IČO (ARES vyhledávání)',
+                  style: TextStyle(fontWeight: FontWeight.bold, color: Colors.grey),
+                ),
+                const SizedBox(height: 8),
+                Container(
+                  decoration: BoxDecoration(
+                    boxShadow: [
+                      if (!isDark)
+                        BoxShadow(
+                          color: Colors.black.withOpacity(0.05),
+                          blurRadius: 10,
+                          offset: const Offset(0, 4),
+                        ),
+                    ],
+                    borderRadius: BorderRadius.circular(15),
+                  ),
+                  child: TextField(
+                    controller: _icoController,
+                    keyboardType: TextInputType.number,
+                    decoration: InputDecoration(
+                      prefixIcon: const Icon(Icons.business, color: Colors.blue),
+                      suffixIcon: _isLoadingAres
+                          ? const Padding(
+                              padding: EdgeInsets.all(12.0),
+                              child: SizedBox(
+                                width: 20,
+                                height: 20,
+                                child: CircularProgressIndicator(strokeWidth: 2),
+                              ),
+                            )
+                          : IconButton(
+                              icon: const Icon(Icons.search, color: Colors.blue),
+                              onPressed: _fetchAresData,
+                              tooltip: 'Hledat v ARES',
+                            ),
+                      filled: true,
+                      fillColor: isDark ? const Color(0xFF1E1E1E) : Colors.white,
+                      enabledBorder: OutlineInputBorder(
+                        borderRadius: BorderRadius.circular(15),
+                        borderSide: BorderSide(
+                            color: isDark ? Colors.grey[800]! : Colors.grey[300]!,
+                            width: 1),
+                      ),
+                      focusedBorder: OutlineInputBorder(
+                        borderRadius: BorderRadius.circular(15),
+                        borderSide: const BorderSide(color: Colors.blue, width: 2),
+                      ),
+                      border: OutlineInputBorder(
+                        borderRadius: BorderRadius.circular(15),
+                        borderSide: BorderSide(
+                            color: isDark ? Colors.grey[800]! : Colors.grey[300]!,
+                            width: 1),
+                      ),
+                    ),
+                  ),
+                ),
+              ],
+            ),
+            
+            const SizedBox(height: 20),
             _buildInput(
               'Jméno a příjmení / Název firmy',
               Icons.person,
               _jmenoController,
               isDark,
-            ),
-            const SizedBox(height: 20),
-            _buildInput(
-              'IČO (volitelné)',
-              Icons.business,
-              _icoController,
-              isDark,
-              numbersOnly: true,
             ),
             const SizedBox(height: 20),
             _buildInput(
@@ -763,7 +863,6 @@ class _MainWizardPageState extends State<MainWizardPage> {
         ),
       );
 
-  // --- UPRAVENO: 2. Krok (Vozidlo) ---
   Widget _buildVozidloStep(bool isDark) => SingleChildScrollView(
         padding: const EdgeInsets.all(30),
         child: Column(
@@ -2096,7 +2195,7 @@ class _AddWorkSheetState extends State<_AddWorkSheet> {
 }
 
 // ==============================================================================
-// STRÁNKA HISTORIE ZAKÁZEK (DETAIL KE ČTENÍ A TISK PDF)
+// STRÁNKA HISTORIE ZAKÁZEK
 // ==============================================================================
 
 class HistoryPage extends StatefulWidget {
@@ -2137,14 +2236,6 @@ class _HistoryPageState extends State<HistoryPage> {
               const SizedBox(height: 15),
               Container(
                 decoration: BoxDecoration(
-                  boxShadow: [
-                    if (!isDark)
-                      BoxShadow(
-                        color: Colors.black.withOpacity(0.05),
-                        blurRadius: 10,
-                        offset: const Offset(0, 4),
-                      ),
-                  ],
                   borderRadius: BorderRadius.circular(15),
                 ),
                 child: TextField(
@@ -2279,7 +2370,7 @@ class _HistoryPageState extends State<HistoryPage> {
     bool isDark,
   ) {
     final stav = data['stav_vozidla'] as Map<String, dynamic>? ?? {};
-    final zakaznik = data['zakaznik'] as Map<String, dynamic>? ?? {}; // NOVÉ
+    final zakaznik = data['zakaznik'] as Map<String, dynamic>? ?? {}; 
     final rawUrls = data['fotografie_urls'];
     final Map<String, dynamic> imageUrlsByCategoryRaw = {};
 
@@ -2382,7 +2473,6 @@ class _HistoryPageState extends State<HistoryPage> {
 
             const Divider(height: 40),
 
-            // --- NOVÉ: Zákazník ---
             if (zakaznik.isNotEmpty && (zakaznik['jmeno']?.toString().isNotEmpty == true || zakaznik['ico']?.toString().isNotEmpty == true)) ...[
               const Text(
                 'Zákazník:',
@@ -2695,7 +2785,6 @@ class _HistoryPageState extends State<HistoryPage> {
             ),
             pw.SizedBox(height: 20),
 
-            // --- ZÁKAZNÍK (PDF) ---
             if (zakaznik.isNotEmpty && (zakaznik['jmeno']?.toString().isNotEmpty == true || zakaznik['ico']?.toString().isNotEmpty == true)) ...[
               pw.Container(
                 padding: const pw.EdgeInsets.all(15),
