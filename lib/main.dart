@@ -161,7 +161,6 @@ class _MainScreenState extends State<MainScreen> {
       ),
 
       // Hlavní obsah obrazovky
-      // IndexedStack drží obě stránky v paměti a zobrazuje jen tu aktivní
       body: IndexedStack(index: _currentIndex, children: _pages),
 
       // Spodní navigační lišta (NavigationBar)
@@ -214,6 +213,7 @@ class _MainWizardPageState extends State<MainWizardPage> {
   // --- KONTROLERY PRO TEXTOVÁ POLE ---
   final _zakazkaController = TextEditingController();
   final _spzController = TextEditingController();
+  final _vinController = TextEditingController(); // NOVÉ: Kontroler pro VIN
   final _poznamkyController = TextEditingController();
 
   // --- STAVOVÉ PROMĚNNÉ ---
@@ -242,7 +242,6 @@ class _MainWizardPageState extends State<MainWizardPage> {
 
   // Posun na další krok nebo dokončení nahrávání
   void _moveNext() {
-    // Schová klávesnici při posunu
     FocusScope.of(context).unfocus();
     if (_currentPage < _totalPages - 1) {
       _pageController.nextPage(
@@ -250,7 +249,6 @@ class _MainWizardPageState extends State<MainWizardPage> {
         curve: Curves.easeInOutCubic,
       );
     } else {
-      // Jsme na posledním kroku, spustíme nahrávání
       _startDirectUpload();
     }
   }
@@ -268,15 +266,12 @@ class _MainWizardPageState extends State<MainWizardPage> {
 
   // Funkce obalující nahrávání, ukazuje načítací overlay a SnackBar
   Future<void> _startDirectUpload() async {
-    // Ukáže načítací obrazovku
     setState(() {
       _isUploading = true;
     });
     try {
-      // Samotné nahrávání dat a fotek
       await _uploadToFirebase();
       if (mounted) {
-        // Úspěch - SnackBar a reset formuláře
         ScaffoldMessenger.of(context).showSnackBar(
           const SnackBar(
             content: Text('Zakázka úspěšně odeslána'),
@@ -286,7 +281,6 @@ class _MainWizardPageState extends State<MainWizardPage> {
         _resetForm();
       }
     } catch (e) {
-      // Chyba - SnackBar s popisem chyby
       if (mounted) {
         ScaffoldMessenger.of(context).showSnackBar(
           SnackBar(
@@ -296,7 +290,6 @@ class _MainWizardPageState extends State<MainWizardPage> {
         );
       }
     } finally {
-      // Vždy schová načítací obrazovku
       if (mounted) {
         setState(() {
           _isUploading = false;
@@ -308,7 +301,6 @@ class _MainWizardPageState extends State<MainWizardPage> {
   // Hlavní asynchronní funkce pro nahrávání do Storage a Firestore
   Future<void> _uploadToFirebase() async {
     List<String> imageUrls = [];
-    // Vygeneruje ID zakázky, pokud není zadáno (např. ID_časové_razítko)
     String zakazkaId = _zakazkaController.text.trim().isEmpty
         ? 'ID_${DateTime.now().millisecondsSinceEpoch}'
         : _zakazkaController.text.trim();
@@ -316,25 +308,21 @@ class _MainWizardPageState extends State<MainWizardPage> {
     // 1. Nahrávání fotografií do Firebase Storage
     for (int i = 0; i < _images.length; i++) {
       XFile image = _images[i];
-      // Unikátní název souboru
       String fileName = 'foto_${DateTime.now().millisecondsSinceEpoch}_$i.jpg';
-      // Reference na místo uložení: zakazky/ID_zakázky/název_souboru.jpg
       Reference ref = FirebaseStorage.instance.ref().child(
         'zakazky/$zakazkaId/$fileName',
       );
 
-      // Nahrání dat (readAsBytes funguje na mobilu i webu)
       await ref.putData(await image.readAsBytes());
-      // Získání veřejné URL adresy fotky
       String downloadUrl = await ref.getDownloadURL();
       imageUrls.add(downloadUrl);
     }
 
     // 2. Nahrávání dat do Cloud Firestore
-    // Ukládáme do kolekce 'zakazky', dokument má ID zakázky
     await FirebaseFirestore.instance.collection('zakazky').doc(zakazkaId).set({
       'cislo_zakazky': zakazkaId,
-      'spz': _spzController.text.trim(), // Odstraní mezery na začátku/konci
+      'spz': _spzController.text.trim(),
+      'vin': _vinController.text.trim(), // NOVÉ: Uložení VIN do databáze
       'stav_vozidla': {
         'poskozeni': _vybranePoskozeni ?? 'Neuvedeno',
         'stk_mesic': _stkMesicController.text.trim(),
@@ -345,8 +333,8 @@ class _MainWizardPageState extends State<MainWizardPage> {
         'pneu_pz': _pneuPZController.text.trim(),
       },
       'poznamky': _poznamkyController.text.trim(),
-      'fotografie_urls': imageUrls, // Seznam získaných URL adres fotek
-      'cas_prijeti': FieldValue.serverTimestamp(), // Časové razítko ze serveru
+      'fotografie_urls': imageUrls,
+      'cas_prijeti': FieldValue.serverTimestamp(),
     });
   }
 
@@ -354,6 +342,7 @@ class _MainWizardPageState extends State<MainWizardPage> {
   void _resetForm() {
     _zakazkaController.clear();
     _spzController.clear();
+    _vinController.clear(); // NOVÉ: Vyčištění VIN
     _poznamkyController.clear();
     _images.clear();
 
@@ -369,13 +358,11 @@ class _MainWizardPageState extends State<MainWizardPage> {
     setState(() {
       _currentPage = 0;
     });
-    // Skočí na první stránku PageView bez animace
     _pageController.jumpToPage(0);
   }
 
   // --- LOGIKA POŘÍZENÍ FOTKY ---
   Future<void> _takePhoto() async {
-    // Pořídí fotku z fotoaparátu, mírně sníží kvalitu (70%) pro rychlejší nahrávání
     final XFile? photo = await _picker.pickImage(
       source: ImageSource.camera,
       imageQuality: 70,
@@ -388,13 +375,10 @@ class _MainWizardPageState extends State<MainWizardPage> {
   }
 
   // --- LOGIKA SKENOVÁNÍ TEXTU (OCR) ---
-
-  // Ošetření technického omezení webových prohlížečů
   Future<void> _scanText(
     TextEditingController controller,
     bool numbersOnly,
   ) async {
-    // Skenování (ML Kit) funguje pouze v nativní mobilní aplikaci, nikoliv ve webovém prohlížeči.
     if (kIsWeb) {
       ScaffoldMessenger.of(context).showSnackBar(
         const SnackBar(
@@ -408,7 +392,6 @@ class _MainWizardPageState extends State<MainWizardPage> {
       return;
     }
 
-    // Nativní mobilní část skenování
     try {
       final XFile? photo = await _picker.pickImage(source: ImageSource.camera);
       if (photo == null) return;
@@ -421,12 +404,9 @@ class _MainWizardPageState extends State<MainWizardPage> {
 
       String result = recognizedText.text;
 
-      // Formátování výsledku
       if (numbersOnly) {
-        // Ponechá jen číslice (vhodné pro číslo zakázky)
         result = result.replaceAll(RegExp(r'[^0-9]'), '');
       } else {
-        // Ponechá jen velká písmena a číslice (vhodné pro SPZ)
         result = result.replaceAll(RegExp(r'[^A-Z0-9]'), '').toUpperCase();
       }
 
@@ -448,39 +428,33 @@ class _MainWizardPageState extends State<MainWizardPage> {
   Widget build(BuildContext context) {
     final isDark = Theme.of(context).brightness == Brightness.dark;
 
-    // Stack umožňuje překrýt hlavní obsah načítacím overlaem (_isUploading)
     return Stack(
       children: [
         Column(
           children: [
-            // Hlavní obsah průvodce (PageVew)
             Expanded(
               child: PageView(
                 controller: _pageController,
-                // Aktualizace stavu při změně stránky
                 onPageChanged: (idx) {
                   setState(() {
                     _currentPage = idx;
                   });
                 },
-                // Vypnutí scrollování prstem - posouváme jen tlačítky
                 physics: const NeverScrollableScrollPhysics(),
                 children: [
-                  _buildInfoStep(isDark), // Krok 1: Číslo zakázky a SPZ
+                  _buildInfoStep(isDark), // Krok 1: Základní údaje + VIN
                   _buildPhotoStep(isDark), // Krok 2: Fotografie
                   _buildCheckStep(isDark), // Krok 3: Stav vozidla
                 ],
               ),
             ),
-            // Spodní panel s ukazatelem postupu a tlačítky "Zpět/Další"
             _buildBottomPanel(isDark),
           ],
         ),
 
-        // Načítací overlay - zobrazí se jen pokud nahráváme do Firebase
         if (_isUploading)
           Container(
-            color: Colors.black54, // Poloprůhledné tmavé pozadí
+            color: Colors.black54,
             child: const Center(
               child: Card(
                 elevation: 10,
@@ -489,7 +463,7 @@ class _MainWizardPageState extends State<MainWizardPage> {
                   child: Column(
                     mainAxisSize: MainAxisSize.min,
                     children: [
-                      CircularProgressIndicator(), // Točící se kolečko
+                      CircularProgressIndicator(),
                       SizedBox(height: 20),
                       Text(
                         'Odesílám zakázku...',
@@ -505,7 +479,7 @@ class _MainWizardPageState extends State<MainWizardPage> {
     );
   }
 
-  // --- KROK 1: ZÁKLADNÍ ÚDAJE (Číslo zakázky, SPZ) ---
+  // --- KROK 1: ZÁKLADNÍ ÚDAJE (Číslo zakázky, SPZ, VIN) ---
   Widget _buildInfoStep(bool isDark) => SingleChildScrollView(
     padding: const EdgeInsets.all(30),
     child: Column(
@@ -516,7 +490,6 @@ class _MainWizardPageState extends State<MainWizardPage> {
           style: TextStyle(fontSize: 32, fontWeight: FontWeight.bold),
         ),
         const SizedBox(height: 40),
-        // Pole pro číslo zakázky - caps: true zajistí automatická velká písmena
         _buildInput(
           'Číslo zakázky',
           Icons.tag,
@@ -525,13 +498,21 @@ class _MainWizardPageState extends State<MainWizardPage> {
           caps: true,
         ),
         const SizedBox(height: 20),
-        // Pole pro SPZ - caps: true zajistí automatická velká písmena
         _buildInput(
           'SPZ vozidla',
           Icons.directions_car,
           _spzController,
           isDark,
           caps: true,
+        ),
+        const SizedBox(height: 20),
+        // NOVÉ: Pole pro VIN kód
+        _buildInput(
+          'VIN kód',
+          Icons.fingerprint, // Ikonka otisku prstu (unikátní identifikátor)
+          _vinController,
+          isDark,
+          caps: true, // VIN obsahuje velká písmena
         ),
       ],
     ),
@@ -550,17 +531,14 @@ class _MainWizardPageState extends State<MainWizardPage> {
         const SizedBox(height: 20),
         Expanded(
           child: GridView.builder(
-            // Mřížka s 2 sloupci a mezerami 15px
             gridDelegate: const SliverGridDelegateWithFixedCrossAxisCount(
               crossAxisCount: 2,
               crossAxisSpacing: 15,
               mainAxisSpacing: 15,
             ),
-            // Počet položek = fotky + 1 (pro tlačítko přidání)
             itemCount: _images.length + 1,
             itemBuilder: (context, index) {
               if (index == _images.length) {
-                // Poslední položka je tlačítko pro přidání fotky
                 return InkWell(
                   onTap: _takePhoto,
                   child: Container(
@@ -582,13 +560,11 @@ class _MainWizardPageState extends State<MainWizardPage> {
                   ),
                 );
               }
-              // Položky se zobrazenou fotkou a tlačítkem smazat (X)
               return Stack(
                 fit: StackFit.expand,
                 children: [
                   ClipRRect(
                     borderRadius: BorderRadius.circular(20),
-                    // Rozlišení načítání fotky na webu (URL) a mobilu (File)
                     child: kIsWeb
                         ? Image.network(_images[index].path, fit: BoxFit.cover)
                         : Image.file(
@@ -596,7 +572,6 @@ class _MainWizardPageState extends State<MainWizardPage> {
                             fit: BoxFit.cover,
                           ),
                   ),
-                  // Tlačítko pro smazání fotky (X) v pravém horním rohu
                   Positioned(
                     top: 8,
                     right: 8,
@@ -630,157 +605,173 @@ class _MainWizardPageState extends State<MainWizardPage> {
         ),
         const SizedBox(height: 30),
 
-        // 1. Poškození (Dropdown v původním designu textových polí)
-        const Text(
-          '1. Zjištěné poškození',
-          style: TextStyle(fontWeight: FontWeight.bold, color: Colors.grey),
-        ),
-        const SizedBox(height: 8),
-        DropdownButtonFormField<String>(
-          value: _vybranePoskozeni,
-          hint: const Text('Vyberte z možností'),
-          decoration: InputDecoration(
-            filled: true,
-            fillColor: isDark ? const Color(0xFF1E1E1E) : Colors.white,
-            border: OutlineInputBorder(
-              borderRadius: BorderRadius.circular(15),
-              borderSide: BorderSide.none,
+        // 1. Poškození
+        Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            const Text(
+              '1. Zjištěné poškození',
+              style: TextStyle(fontWeight: FontWeight.bold, color: Colors.grey),
             ),
-          ),
-          items: _poskozeniMoznosti
-              .map(
-                (String value) =>
-                    DropdownMenuItem<String>(value: value, child: Text(value)),
-              )
-              .toList(),
-          onChanged: (newValue) => setState(() => _vybranePoskozeni = newValue),
+            const SizedBox(height: 8),
+            DropdownButtonFormField<String>(
+              value: _vybranePoskozeni,
+              hint: const Text('Vyberte z možností'),
+              icon: const Icon(
+                Icons.keyboard_arrow_down_rounded,
+                color: Colors.blue,
+              ),
+              decoration: InputDecoration(
+                prefixIcon: const Icon(Icons.car_crash, color: Colors.blue),
+                filled: true,
+                fillColor: isDark ? const Color(0xFF1E1E1E) : Colors.white,
+                border: OutlineInputBorder(
+                  borderRadius: BorderRadius.circular(15),
+                  borderSide: BorderSide.none,
+                ),
+              ),
+              items: _poskozeniMoznosti
+                  .map(
+                    (String value) => DropdownMenuItem<String>(
+                      value: value,
+                      child: Text(value),
+                    ),
+                  )
+                  .toList(),
+              onChanged: (newValue) =>
+                  setState(() => _vybranePoskozeni = newValue),
+            ),
+          ],
         ),
         const SizedBox(height: 25),
 
         // 2. STK
-        const Text(
-          '2. Platnost STK',
-          style: TextStyle(fontWeight: FontWeight.bold, color: Colors.grey),
-        ),
-        const SizedBox(height: 8),
-        Row(
+        Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
           children: [
-            Expanded(
-              child: _buildSimpleInput(
-                'Měsíc',
-                _stkMesicController,
-                isDark,
-                TextInputType.number,
-              ),
+            const Text(
+              '2. Platnost STK',
+              style: TextStyle(fontWeight: FontWeight.bold, color: Colors.grey),
             ),
-            const SizedBox(width: 15),
-            Expanded(
-              child: _buildSimpleInput(
-                'Rok',
-                _stkRokController,
-                isDark,
-                TextInputType.number,
-              ),
+            const SizedBox(height: 8),
+            Row(
+              children: [
+                Expanded(
+                  child: _buildHalfInput(
+                    'Měsíc',
+                    Icons.calendar_month,
+                    _stkMesicController,
+                    isDark,
+                    TextInputType.number,
+                  ),
+                ),
+                const SizedBox(width: 15),
+                Expanded(
+                  child: _buildHalfInput(
+                    'Rok',
+                    Icons.edit_calendar,
+                    _stkRokController,
+                    isDark,
+                    TextInputType.number,
+                  ),
+                ),
+              ],
             ),
           ],
         ),
         const SizedBox(height: 25),
 
         // 3. Dezén Pneu
-        const Text(
-          '3. Hloubka dezénu pneu (v mm)',
-          style: TextStyle(fontWeight: FontWeight.bold, color: Colors.grey),
-        ),
-        const SizedBox(height: 8),
-        Row(
+        Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
           children: [
-            Expanded(
-              child: _buildSimpleInput(
-                'Levá přední',
-                _pneuLPController,
-                isDark,
-                const TextInputType.numberWithOptions(decimal: true),
-              ),
+            const Text(
+              '3. Hloubka dezénu pneu (v mm)',
+              style: TextStyle(fontWeight: FontWeight.bold, color: Colors.grey),
             ),
-            const SizedBox(width: 15),
-            Expanded(
-              child: _buildSimpleInput(
-                'Pravá přední',
-                _pneuPPController,
-                isDark,
-                const TextInputType.numberWithOptions(decimal: true),
-              ),
+            const SizedBox(height: 8),
+            Row(
+              children: [
+                Expanded(
+                  child: _buildHalfInput(
+                    'Levá př.',
+                    Icons.tire_repair,
+                    _pneuLPController,
+                    isDark,
+                    const TextInputType.numberWithOptions(decimal: true),
+                  ),
+                ),
+                const SizedBox(width: 15),
+                Expanded(
+                  child: _buildHalfInput(
+                    'Pravá př.',
+                    Icons.tire_repair,
+                    _pneuPPController,
+                    isDark,
+                    const TextInputType.numberWithOptions(decimal: true),
+                  ),
+                ),
+              ],
             ),
-          ],
-        ),
-        const SizedBox(height: 15),
-        Row(
-          children: [
-            Expanded(
-              child: _buildSimpleInput(
-                'Levá zadní',
-                _pneuLZController,
-                isDark,
-                const TextInputType.numberWithOptions(decimal: true),
-              ),
-            ),
-            const SizedBox(width: 15),
-            Expanded(
-              child: _buildSimpleInput(
-                'Pravá zadní',
-                _pneuPZController,
-                isDark,
-                const TextInputType.numberWithOptions(decimal: true),
-              ),
+            const SizedBox(height: 15),
+            Row(
+              children: [
+                Expanded(
+                  child: _buildHalfInput(
+                    'Levá zad.',
+                    Icons.tire_repair,
+                    _pneuLZController,
+                    isDark,
+                    const TextInputType.numberWithOptions(decimal: true),
+                  ),
+                ),
+                const SizedBox(width: 15),
+                Expanded(
+                  child: _buildHalfInput(
+                    'Pravá zad.',
+                    Icons.tire_repair,
+                    _pneuPZController,
+                    isDark,
+                    const TextInputType.numberWithOptions(decimal: true),
+                  ),
+                ),
+              ],
             ),
           ],
         ),
         const SizedBox(height: 30),
 
-        // Pole pro volné poznámky
-        const Text(
-          'Dodatečné poznámky',
-          style: TextStyle(fontWeight: FontWeight.bold, color: Colors.grey),
-        ),
-        const SizedBox(height: 8),
-        TextField(
-          controller: _poznamkyController,
-          maxLines: 3,
-          decoration: InputDecoration(
-            hintText: 'Poznámky...',
-            filled: true,
-            fillColor: isDark ? const Color(0xFF1E1E1E) : Colors.white,
-            border: OutlineInputBorder(
-              borderRadius: BorderRadius.circular(15),
-              borderSide: BorderSide.none,
+        // Poznámky
+        Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            const Text(
+              'Dodatečné poznámky',
+              style: TextStyle(fontWeight: FontWeight.bold, color: Colors.grey),
             ),
-          ),
+            const SizedBox(height: 8),
+            TextField(
+              controller: _poznamkyController,
+              maxLines: 3,
+              decoration: InputDecoration(
+                hintText: 'Poznámky...',
+                prefixIcon: const Padding(
+                  padding: EdgeInsets.only(bottom: 40),
+                  child: Icon(Icons.notes, color: Colors.blue),
+                ),
+                filled: true,
+                fillColor: isDark ? const Color(0xFF1E1E1E) : Colors.white,
+                border: OutlineInputBorder(
+                  borderRadius: BorderRadius.circular(15),
+                  borderSide: BorderSide.none,
+                ),
+              ),
+            ),
+          ],
         ),
       ],
     ),
   );
-
-  // Pomocný widget pro zachování přesného designu jednoduchých políček
-  Widget _buildSimpleInput(
-    String hint,
-    TextEditingController controller,
-    bool isDark,
-    TextInputType type,
-  ) {
-    return TextField(
-      controller: controller,
-      keyboardType: type,
-      decoration: InputDecoration(
-        hintText: hint,
-        filled: true,
-        fillColor: isDark ? const Color(0xFF1E1E1E) : Colors.white,
-        border: OutlineInputBorder(
-          borderRadius: BorderRadius.circular(15),
-          borderSide: BorderSide.none,
-        ),
-      ),
-    );
-  }
 
   // --- SPODNÍ PANEL (Ukazatel postupu a tlačítka) ---
   Widget _buildBottomPanel(bool isDark) => Container(
@@ -799,7 +790,6 @@ class _MainWizardPageState extends State<MainWizardPage> {
       child: Column(
         mainAxisSize: MainAxisSize.min,
         children: [
-          // Ukazatel postupu (tenké čárky nahoře)
           Row(
             children: List.generate(
               _totalPages,
@@ -808,7 +798,6 @@ class _MainWizardPageState extends State<MainWizardPage> {
                   height: 4,
                   margin: const EdgeInsets.symmetric(horizontal: 4),
                   decoration: BoxDecoration(
-                    // Modrá pro hotové/aktuální kroky, šedá pro budoucí
                     color: index <= _currentPage
                         ? Colors.blue
                         : Colors.grey[300],
@@ -819,10 +808,8 @@ class _MainWizardPageState extends State<MainWizardPage> {
             ),
           ),
           const SizedBox(height: 20),
-          // Tlačítka
           Row(
             children: [
-              // Tlačítko "Zpět" - zobrazí se jen pokud nejsme na prvním kroku
               if (_currentPage > 0)
                 IconButton.filledTonal(
                   onPressed: _moveBack,
@@ -831,7 +818,6 @@ class _MainWizardPageState extends State<MainWizardPage> {
                 ),
               if (_currentPage > 0) const SizedBox(width: 15),
 
-              // Hlavní tlačítko "Další krok" / "Dokončit"
               Expanded(
                 child: ElevatedButton(
                   onPressed: _moveNext,
@@ -843,7 +829,6 @@ class _MainWizardPageState extends State<MainWizardPage> {
                       borderRadius: BorderRadius.circular(18),
                     ),
                   ),
-                  // Změna textu na posledním kroku
                   child: Text(
                     _currentPage == _totalPages - 1 ? 'DOKONČIT' : 'DALŠÍ KROK',
                     style: const TextStyle(fontWeight: FontWeight.bold),
@@ -875,15 +860,12 @@ class _MainWizardPageState extends State<MainWizardPage> {
       const SizedBox(height: 8),
       TextField(
         controller: controller,
-        // Automatická velká písmena pro SPZ/Zakázku
         textCapitalization: caps
             ? TextCapitalization.characters
             : TextCapitalization.none,
-        // Výběr klávesnice podle numbersOnly
         keyboardType: numbersOnly ? TextInputType.number : TextInputType.text,
         decoration: InputDecoration(
           prefixIcon: Icon(icon, color: Colors.blue),
-          // Tlačítko pro skenování textu (OCR) vpravo
           suffixIcon: IconButton(
             icon: const Icon(Icons.document_scanner),
             onPressed: () => _scanText(controller, numbersOnly),
@@ -898,6 +880,30 @@ class _MainWizardPageState extends State<MainWizardPage> {
       ),
     ],
   );
+
+  Widget _buildHalfInput(
+    String hint,
+    IconData icon,
+    TextEditingController controller,
+    bool isDark,
+    TextInputType type,
+  ) {
+    return TextField(
+      controller: controller,
+      keyboardType: type,
+      decoration: InputDecoration(
+        hintText: hint,
+        prefixIcon: Icon(icon, color: Colors.blue, size: 20),
+        filled: true,
+        fillColor: isDark ? const Color(0xFF1E1E1E) : Colors.white,
+        border: OutlineInputBorder(
+          borderRadius: BorderRadius.circular(15),
+          borderSide: BorderSide.none,
+        ),
+        contentPadding: const EdgeInsets.symmetric(vertical: 15),
+      ),
+    );
+  }
 }
 
 // ==============================================================================
@@ -907,14 +913,10 @@ class _MainWizardPageState extends State<MainWizardPage> {
 class HistoryPage extends StatelessWidget {
   const HistoryPage({super.key});
 
-  // Pomocná funkce pro formátování časového razítka z Firestore do češtiny
   String _formatDate(dynamic timestamp) {
     if (timestamp == null) return "Zpracovává se...";
-    // Převedení Firestore Timestampu na Dart DateTime
     DateTime dt = (timestamp as Timestamp).toDate();
-    return DateFormat(
-      'dd.MM.yyyy HH:mm',
-    ).format(dt); // Formát: 15.05.2023 14:30
+    return DateFormat('dd.MM.yyyy HH:mm').format(dt);
   }
 
   @override
@@ -932,9 +934,7 @@ class HistoryPage extends StatelessWidget {
           ),
         ),
         Expanded(
-          // StreamBuilder se automaticky aktualizuje, když se změní data ve Firestore
           child: StreamBuilder<QuerySnapshot>(
-            // Stream ze Firestore: kolekce 'zakazky', seřazeno podle času příjmu (sestupně)
             stream: FirebaseFirestore.instance
                 .collection('zakazky')
                 .orderBy('cas_prijeti', descending: true)
@@ -942,13 +942,12 @@ class HistoryPage extends StatelessWidget {
             builder: (context, snapshot) {
               if (snapshot.hasError)
                 return Center(child: Text("Chyba databáze: ${snapshot.error}"));
-              // Zobrazí načítací kolečko, dokud nejsou data
+
               if (!snapshot.hasData)
                 return const Center(child: CircularProgressIndicator());
 
               final docs = snapshot.data!.docs;
 
-              // Zobrazí nápis "Zatím žádné zakázky", pokud je kolekce prázdná
               if (docs.isEmpty)
                 return Center(
                   child: Column(
@@ -971,12 +970,10 @@ class HistoryPage extends StatelessWidget {
                   ),
                 );
 
-              // Seznam zakázek
               return ListView.builder(
                 padding: const EdgeInsets.all(20),
                 itemCount: docs.length,
                 itemBuilder: (context, index) {
-                  // Převedení dokumentu na Dart Mapu (Map<String, dynamic>)
                   final data = docs[index].data() as Map<String, dynamic>;
                   return Card(
                     color: isDark ? const Color(0xFF1E1E1E) : Colors.white,
@@ -989,17 +986,16 @@ class HistoryPage extends StatelessWidget {
                     child: ListTile(
                       leading: const CircleAvatar(
                         child: Icon(Icons.car_repair),
-                      ), // Ikona auta
+                      ),
                       title: Text(
                         'Zakázka ${data['cislo_zakazky']}',
                         style: const TextStyle(fontWeight: FontWeight.bold),
                       ),
-                      // Formátovaný datum a SPZ v podnadpisu
+                      // Zobrazení SPZ a Data
                       subtitle: Text(
                         'SPZ: ${data['spz']}\n${_formatDate(data['cas_prijeti'])}',
                       ),
                       isThreeLine: true,
-                      // Otevření detailu zakázky vespod (BottomSheet)
                       onTap: () => _showDetail(context, data, isDark),
                     ),
                   );
@@ -1018,9 +1014,11 @@ class HistoryPage extends StatelessWidget {
     Map<String, dynamic> data,
     bool isDark,
   ) {
+    final stav = data['stav_vozidla'] as Map<String, dynamic>? ?? {};
+
     showModalBottomSheet(
       context: context,
-      isScrollControlled: true, // BottomSheet může být přes celou obrazovku
+      isScrollControlled: true,
       backgroundColor: isDark ? const Color(0xFF121212) : Colors.white,
       shape: const RoundedRectangleBorder(
         borderRadius: BorderRadius.vertical(top: Radius.circular(25)),
@@ -1028,10 +1026,9 @@ class HistoryPage extends StatelessWidget {
       builder: (context) => Padding(
         padding: const EdgeInsets.all(30),
         child: Column(
-          mainAxisSize: MainAxisSize.min, // Výška se přizpůsobí obsahu
+          mainAxisSize: MainAxisSize.min,
           crossAxisAlignment: CrossAxisAlignment.start,
           children: [
-            // Šedý indikátor pro zavření Sheetu prstem (Scroll handle)
             Center(
               child: Container(
                 width: 40,
@@ -1044,7 +1041,6 @@ class HistoryPage extends StatelessWidget {
             ),
             const SizedBox(height: 20),
 
-            // Hlavička detailu (Název a tlačítko PDF)
             Row(
               mainAxisAlignment: MainAxisAlignment.spaceBetween,
               children: [
@@ -1055,20 +1051,20 @@ class HistoryPage extends StatelessWidget {
                     fontWeight: FontWeight.bold,
                   ),
                 ),
-                // Červená ikona PDF pro generování protokolu
                 IconButton(
                   icon: const Icon(
                     Icons.picture_as_pdf,
                     color: Colors.redAccent,
                     size: 28,
                   ),
-                  onPressed: () => _exportToPdf(context, data),
+                  onPressed: () => _exportToPdf(context, data, stav),
                   tooltip: 'Stáhnout PDF protokol',
                 ),
               ],
             ),
             const SizedBox(height: 10),
-            // SPZ a čas příjmu
+
+            // Základní údaje - Nyní včetně VIN kódu
             Text(
               'SPZ: ${data['spz']}',
               style: const TextStyle(
@@ -1077,6 +1073,15 @@ class HistoryPage extends StatelessWidget {
                 fontWeight: FontWeight.w500,
               ),
             ),
+            if (data['vin'] != null && data['vin'].toString().isNotEmpty)
+              Text(
+                'VIN: ${data['vin']}',
+                style: const TextStyle(
+                  fontSize: 16,
+                  fontWeight: FontWeight.bold,
+                ),
+              ),
+            const SizedBox(height: 4),
             Text(
               'Přijato: ${_formatDate(data['cas_prijeti'])}',
               style: TextStyle(
@@ -1086,72 +1091,77 @@ class HistoryPage extends StatelessWidget {
 
             const Divider(height: 40),
 
-            // ZOBRAZENÍ NOVÝCH DAT V HISTORII
             const Text(
               'Stav vozidla:',
               style: TextStyle(fontWeight: FontWeight.bold, fontSize: 16),
             ),
-            const SizedBox(height: 10),
-            if (data['stav_vozidla'] != null) ...[
-              Text('Poškození: ${data['stav_vozidla']['poskozeni']}'),
-              Text(
-                'STK: ${data['stav_vozidla']['stk_mesic']} / ${data['stav_vozidla']['stk_rok']}',
-              ),
-              const SizedBox(height: 10),
-              const Text(
-                'Dezén Pneu:',
-                style: TextStyle(
-                  color: Colors.grey,
-                  fontWeight: FontWeight.bold,
-                ),
-              ),
-              Row(
-                mainAxisAlignment: MainAxisAlignment.spaceAround,
-                children: [
-                  Column(
-                    children: [
-                      const Text('LP', style: TextStyle(color: Colors.grey)),
-                      Text(
-                        '${data['stav_vozidla']['pneu_lp']} mm',
-                        style: const TextStyle(fontWeight: FontWeight.bold),
-                      ),
-                    ],
-                  ),
-                  Column(
-                    children: [
-                      const Text('PP', style: TextStyle(color: Colors.grey)),
-                      Text(
-                        '${data['stav_vozidla']['pneu_pp']} mm',
-                        style: const TextStyle(fontWeight: FontWeight.bold),
-                      ),
-                    ],
-                  ),
-                  Column(
-                    children: [
-                      const Text('LZ', style: TextStyle(color: Colors.grey)),
-                      Text(
-                        '${data['stav_vozidla']['pneu_lz']} mm',
-                        style: const TextStyle(fontWeight: FontWeight.bold),
-                      ),
-                    ],
-                  ),
-                  Column(
-                    children: [
-                      const Text('PZ', style: TextStyle(color: Colors.grey)),
-                      Text(
-                        '${data['stav_vozidla']['pneu_pz']} mm',
-                        style: const TextStyle(fontWeight: FontWeight.bold),
-                      ),
-                    ],
-                  ),
-                ],
-              ),
-            ],
+            const SizedBox(height: 15),
 
-            // Sekce Poznámky (pouze pokud existují)
+            _buildDetailRow(
+              'Poškození:',
+              stav['poskozeni']?.toString() ?? 'Neuvedeno',
+              Icons.warning_amber_rounded,
+              Colors.orange,
+            ),
+            _buildDetailRow(
+              'Platnost STK:',
+              '${stav['stk_mesic'] ?? '-'} / ${stav['stk_rok'] ?? '-'}',
+              Icons.calendar_month_rounded,
+              Colors.blue,
+            ),
+
+            const SizedBox(height: 10),
+            const Text(
+              'Dezén Pneu:',
+              style: TextStyle(color: Colors.grey, fontWeight: FontWeight.bold),
+            ),
+            const SizedBox(height: 5),
+            Row(
+              mainAxisAlignment: MainAxisAlignment.spaceAround,
+              children: [
+                Column(
+                  children: [
+                    const Text('LP', style: TextStyle(color: Colors.grey)),
+                    Text(
+                      '${stav['pneu_lp'] ?? '-'} mm',
+                      style: const TextStyle(fontWeight: FontWeight.bold),
+                    ),
+                  ],
+                ),
+                Column(
+                  children: [
+                    const Text('PP', style: TextStyle(color: Colors.grey)),
+                    Text(
+                      '${stav['pneu_pp'] ?? '-'} mm',
+                      style: const TextStyle(fontWeight: FontWeight.bold),
+                    ),
+                  ],
+                ),
+                Column(
+                  children: [
+                    const Text('LZ', style: TextStyle(color: Colors.grey)),
+                    Text(
+                      '${stav['pneu_lz'] ?? '-'} mm',
+                      style: const TextStyle(fontWeight: FontWeight.bold),
+                    ),
+                  ],
+                ),
+                Column(
+                  children: [
+                    const Text('PZ', style: TextStyle(color: Colors.grey)),
+                    Text(
+                      '${stav['pneu_pz'] ?? '-'} mm',
+                      style: const TextStyle(fontWeight: FontWeight.bold),
+                    ),
+                  ],
+                ),
+              ],
+            ),
+            const SizedBox(height: 20),
+
             if (data['poznamky'] != null &&
                 data['poznamky'].toString().isNotEmpty) ...[
-              const SizedBox(height: 20),
+              const SizedBox(height: 10),
               const Text(
                 'Poznámky:',
                 style: TextStyle(fontWeight: FontWeight.bold, fontSize: 16),
@@ -1167,9 +1177,8 @@ class HistoryPage extends StatelessWidget {
 
             const SizedBox(height: 30),
 
-            // Sekce Fotografie
             const Text(
-              'Fotografie (klikni pro stažení/zvětšení):',
+              'Fotografie:',
               style: TextStyle(fontWeight: FontWeight.bold, fontSize: 16),
             ),
             const SizedBox(height: 15),
@@ -1179,25 +1188,21 @@ class HistoryPage extends StatelessWidget {
             else
               SizedBox(
                 height: 180,
-                // Horizontální seznam fotek (scrolluje se doprava)
                 child: ListView.builder(
                   scrollDirection: Axis.horizontal,
                   itemCount: (data['fotografie_urls'] as List).length,
                   itemBuilder: (context, i) {
                     final imageUrl = data['fotografie_urls'][i];
                     return GestureDetector(
-                      // Na webu otevře fotku v novém okně prohlížeče
                       onTap: () => html.window.open(imageUrl, "_blank"),
                       child: Padding(
                         padding: const EdgeInsets.only(right: 15),
                         child: ClipRRect(
                           borderRadius: BorderRadius.circular(15),
-                          // Načítání obrázku ze síťové URL
                           child: Image.network(
                             imageUrl,
                             width: 250,
                             fit: BoxFit.cover,
-                            // Ošetření chyby nahrávání (např. CORS na webu)
                             errorBuilder: (context, error, stackTrace) =>
                                 Container(
                                   width: 250,
@@ -1212,7 +1217,7 @@ class HistoryPage extends StatelessWidget {
                                       ),
                                       SizedBox(height: 8),
                                       Text(
-                                        'Chyba načítání (CORS)',
+                                        'Chyba (CORS)',
                                         style: TextStyle(
                                           fontSize: 12,
                                           color: Colors.red,
@@ -1221,7 +1226,6 @@ class HistoryPage extends StatelessWidget {
                                     ],
                                   ),
                                 ),
-                            // Načítací indikátor, než se fotka stáhne
                             loadingBuilder: (context, child, loadingProgress) {
                               if (loadingProgress == null) return child;
                               return Container(
@@ -1246,12 +1250,32 @@ class HistoryPage extends StatelessWidget {
     );
   }
 
+  Widget _buildDetailRow(
+    String label,
+    String value,
+    IconData icon,
+    Color iconColor,
+  ) {
+    return Padding(
+      padding: const EdgeInsets.only(bottom: 12),
+      child: Row(
+        children: [
+          Icon(icon, color: iconColor, size: 20),
+          const SizedBox(width: 10),
+          Text(label, style: const TextStyle(color: Colors.grey)),
+          const SizedBox(width: 10),
+          Text(value, style: const TextStyle(fontWeight: FontWeight.bold)),
+        ],
+      ),
+    );
+  }
+
   // --- LOGIKA GENEROVÁNÍ PDF PROTOKOLU ---
   Future<void> _exportToPdf(
     BuildContext context,
     Map<String, dynamic> data,
+    Map<String, dynamic> stav,
   ) async {
-    // Ukáže uživateli informativní SnackBar, že se na PDF pracuje
     ScaffoldMessenger.of(context).showSnackBar(
       const SnackBar(
         content: Text('Generuji PDF protokol...'),
@@ -1259,24 +1283,18 @@ class HistoryPage extends StatelessWidget {
       ),
     );
 
-    // Vytvoření nového PDF dokumentu
     final pdf = pw.Document();
-
-    // Stažení moderních písem (z Google Fonts), která umí háčky a čárky (velmi důležité pro češtinu v PDF)
     final fontRegular = await PdfGoogleFonts.robotoRegular();
     final fontBold = await PdfGoogleFonts.robotoBold();
 
-    // Přidání stránky do PDF
     pdf.addPage(
       pw.Page(
         pageFormat: PdfPageFormat.a4,
-        margin: const pw.EdgeInsets.all(40), // Okraje stránky 40px
+        margin: const pw.EdgeInsets.all(40),
         build: (pw.Context context) {
-          // Obsah PDF stránky (Sloupec)
           return pw.Column(
             crossAxisAlignment: pw.CrossAxisAlignment.start,
             children: [
-              // 1. HLAVIČKA PDF
               pw.Header(
                 level: 0,
                 child: pw.Row(
@@ -1290,7 +1308,6 @@ class HistoryPage extends StatelessWidget {
                         color: PdfColors.blue800,
                       ),
                     ),
-                    // Typ dokumentu v šedé barvě
                     pw.Text(
                       'Protokol o příjmu',
                       style: pw.TextStyle(
@@ -1304,7 +1321,6 @@ class HistoryPage extends StatelessWidget {
               ),
               pw.SizedBox(height: 20),
 
-              // 2. ŠEDÝ BOX S ÚDAJI O ZAKÁZCE (Číslo, SPZ, Datum)
               pw.Container(
                 padding: const pw.EdgeInsets.all(15),
                 decoration: pw.BoxDecoration(
@@ -1329,7 +1345,7 @@ class HistoryPage extends StatelessWidget {
                         ),
                       ],
                     ),
-                    pw.Divider(color: PdfColors.grey300), // Vodorovná čára
+                    pw.Divider(color: PdfColors.grey300),
                     pw.Row(
                       mainAxisAlignment: pw.MainAxisAlignment.spaceBetween,
                       children: [
@@ -1343,6 +1359,27 @@ class HistoryPage extends StatelessWidget {
                         ),
                       ],
                     ),
+                    // NOVÉ: VIN v PDF
+                    if (data['vin'] != null &&
+                        data['vin'].toString().isNotEmpty) ...[
+                      pw.Divider(color: PdfColors.grey300),
+                      pw.Row(
+                        mainAxisAlignment: pw.MainAxisAlignment.spaceBetween,
+                        children: [
+                          pw.Text(
+                            'VIN kód:',
+                            style: pw.TextStyle(
+                              font: fontRegular,
+                              fontSize: 14,
+                            ),
+                          ),
+                          pw.Text(
+                            data['vin'].toString(),
+                            style: pw.TextStyle(font: fontBold, fontSize: 16),
+                          ),
+                        ],
+                      ),
+                    ],
                     pw.Divider(color: PdfColors.grey300),
                     pw.Row(
                       mainAxisAlignment: pw.MainAxisAlignment.spaceBetween,
@@ -1362,53 +1399,62 @@ class HistoryPage extends StatelessWidget {
               ),
               pw.SizedBox(height: 30),
 
-              // 3. SEKCE STAV VOZIDLA
+              // STAV VOZIDLA
               pw.Text(
                 'Stav vozidla',
                 style: pw.TextStyle(font: fontBold, fontSize: 18),
               ),
               pw.SizedBox(height: 15),
-              if (data['stav_vozidla'] != null) ...[
-                pw.Row(
-                  mainAxisAlignment: pw.MainAxisAlignment.spaceBetween,
-                  children: [
-                    pw.Text(
-                      'Zjištěné poškození:',
-                      style: pw.TextStyle(font: fontRegular),
-                    ),
-                    pw.Text(
-                      data['stav_vozidla']['poskozeni'].toString(),
-                      style: pw.TextStyle(font: fontBold),
-                    ),
-                  ],
+
+              pw.Row(
+                mainAxisAlignment: pw.MainAxisAlignment.spaceBetween,
+                children: [
+                  pw.Text(
+                    'Zjištěné poškození:',
+                    style: pw.TextStyle(font: fontRegular),
+                  ),
+                  pw.Text(
+                    stav['poskozeni']?.toString() ?? 'Neuvedeno',
+                    style: pw.TextStyle(font: fontBold),
+                  ),
+                ],
+              ),
+              pw.SizedBox(height: 10),
+              pw.Row(
+                mainAxisAlignment: pw.MainAxisAlignment.spaceBetween,
+                children: [
+                  pw.Text(
+                    'Platnost STK:',
+                    style: pw.TextStyle(font: fontRegular),
+                  ),
+                  pw.Text(
+                    '${stav['stk_mesic'] ?? '-'} / ${stav['stk_rok'] ?? '-'}',
+                    style: pw.TextStyle(font: fontBold),
+                  ),
+                ],
+              ),
+              pw.SizedBox(height: 20),
+
+              pw.Text(
+                'Hloubka dezénu pneu:',
+                style: pw.TextStyle(font: fontBold, fontSize: 14),
+              ),
+              pw.SizedBox(height: 10),
+              pw.Container(
+                padding: const pw.EdgeInsets.all(10),
+                decoration: pw.BoxDecoration(
+                  border: pw.Border.all(color: PdfColors.grey300),
+                  borderRadius: const pw.BorderRadius.all(
+                    pw.Radius.circular(8),
+                  ),
                 ),
-                pw.SizedBox(height: 10),
-                pw.Row(
-                  mainAxisAlignment: pw.MainAxisAlignment.spaceBetween,
-                  children: [
-                    pw.Text(
-                      'Platnost STK:',
-                      style: pw.TextStyle(font: fontRegular),
-                    ),
-                    pw.Text(
-                      '${data['stav_vozidla']['stk_mesic']} / ${data['stav_vozidla']['stk_rok']}',
-                      style: pw.TextStyle(font: fontBold),
-                    ),
-                  ],
-                ),
-                pw.SizedBox(height: 20),
-                pw.Text(
-                  'Hloubka dezénu pneu:',
-                  style: pw.TextStyle(font: fontBold, fontSize: 14),
-                ),
-                pw.SizedBox(height: 10),
-                pw.Row(
+                child: pw.Row(
                   mainAxisAlignment: pw.MainAxisAlignment.spaceAround,
                   children: [
                     pw.Column(
                       children: [
                         pw.Text(
-                          'LP',
+                          'Levá Přední',
                           style: pw.TextStyle(
                             font: fontRegular,
                             color: PdfColors.grey600,
@@ -1416,7 +1462,7 @@ class HistoryPage extends StatelessWidget {
                           ),
                         ),
                         pw.Text(
-                          '${data['stav_vozidla']['pneu_lp']} mm',
+                          '${stav['pneu_lp'] ?? '-'} mm',
                           style: pw.TextStyle(font: fontBold),
                         ),
                       ],
@@ -1424,7 +1470,7 @@ class HistoryPage extends StatelessWidget {
                     pw.Column(
                       children: [
                         pw.Text(
-                          'PP',
+                          'Pravá Přední',
                           style: pw.TextStyle(
                             font: fontRegular,
                             color: PdfColors.grey600,
@@ -1432,7 +1478,7 @@ class HistoryPage extends StatelessWidget {
                           ),
                         ),
                         pw.Text(
-                          '${data['stav_vozidla']['pneu_pp']} mm',
+                          '${stav['pneu_pp'] ?? '-'} mm',
                           style: pw.TextStyle(font: fontBold),
                         ),
                       ],
@@ -1440,7 +1486,7 @@ class HistoryPage extends StatelessWidget {
                     pw.Column(
                       children: [
                         pw.Text(
-                          'LZ',
+                          'Levá Zadní',
                           style: pw.TextStyle(
                             font: fontRegular,
                             color: PdfColors.grey600,
@@ -1448,7 +1494,7 @@ class HistoryPage extends StatelessWidget {
                           ),
                         ),
                         pw.Text(
-                          '${data['stav_vozidla']['pneu_lz']} mm',
+                          '${stav['pneu_lz'] ?? '-'} mm',
                           style: pw.TextStyle(font: fontBold),
                         ),
                       ],
@@ -1456,7 +1502,7 @@ class HistoryPage extends StatelessWidget {
                     pw.Column(
                       children: [
                         pw.Text(
-                          'PZ',
+                          'Pravá Zadní',
                           style: pw.TextStyle(
                             font: fontRegular,
                             color: PdfColors.grey600,
@@ -1464,20 +1510,19 @@ class HistoryPage extends StatelessWidget {
                           ),
                         ),
                         pw.Text(
-                          '${data['stav_vozidla']['pneu_pz']} mm',
+                          '${stav['pneu_pz'] ?? '-'} mm',
                           style: pw.TextStyle(font: fontBold),
                         ),
                       ],
                     ),
                   ],
                 ),
-              ],
+              ),
 
               pw.SizedBox(height: 20),
               pw.Divider(),
               pw.SizedBox(height: 20),
 
-              // 4. SEKCE POZNÁMKY
               if (data['poznamky'] != null &&
                   data['poznamky'].toString().isNotEmpty) ...[
                 pw.Text(
@@ -1494,7 +1539,6 @@ class HistoryPage extends StatelessWidget {
                   ),
                 ),
               ] else ...[
-                // Fallback, pokud poznámky chybí
                 pw.Text(
                   'Bez dodatečných poznámek.',
                   style: pw.TextStyle(
@@ -1505,8 +1549,7 @@ class HistoryPage extends StatelessWidget {
                 ),
               ],
 
-              pw.Spacer(), // Posune patičku až na spodek stránky
-              // 5. PATIČKA PDF
+              pw.Spacer(),
               pw.Center(
                 child: pw.Text(
                   'Vygenerováno aplikací Visto',
@@ -1523,12 +1566,9 @@ class HistoryPage extends StatelessWidget {
       ),
     );
 
-    // Otevře dialog pro sdílení, tisk nebo stažení vygenerovaného PDF
-    // Na webu to soubor rovnou nabídne ke stažení nebo otevře v náhledu, na mobilu otevře standardní dialog sdílení.
     await Printing.sharePdf(
-      bytes: await pdf.save(), // Převede PDF na surová data (byty)
-      filename:
-          'Protokol_${data['cislo_zakazky']}.pdf', // Navrhovaný název souboru
+      bytes: await pdf.save(),
+      filename: 'Protokol_${data['cislo_zakazky']}.pdf',
     );
   }
 }
