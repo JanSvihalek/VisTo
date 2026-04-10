@@ -170,6 +170,7 @@ class _MainWizardPageState extends State<MainWizardPage> {
                   .map((d) => d.data() as Map<String, dynamic>)
                   .toList();
             });
+            _moveNext(); // <--- Přidáno automatické přeskočení
           }
         },
       ),
@@ -543,7 +544,7 @@ class _MainWizardPageState extends State<MainWizardPage> {
       crossAxisAlignment: CrossAxisAlignment.start,
       children: [
         const Text(
-          'Příjem vozidla',
+          'Údaje o zákazníkovi',
           style: TextStyle(fontSize: 32, fontWeight: FontWeight.bold),
         ),
         const SizedBox(height: 40),
@@ -635,59 +636,6 @@ class _MainWizardPageState extends State<MainWizardPage> {
         ),
         const SizedBox(height: 20),
         _buildInput('E-mail', Icons.email, _emailZController, isDark),
-        if (_nalezenaVozidla.isNotEmpty) ...[
-          const SizedBox(height: 30),
-          const Divider(),
-          const SizedBox(height: 15),
-          const Text(
-            'Uložená vozidla zákazníka:',
-            style: TextStyle(fontWeight: FontWeight.bold, fontSize: 16),
-          ),
-          const SizedBox(height: 10),
-          Wrap(
-            spacing: 10,
-            runSpacing: 10,
-            children: _nalezenaVozidla
-                .map(
-                  (v) => ActionChip(
-                    backgroundColor: Colors.white,
-                    side: const BorderSide(color: Colors.blue),
-                    label: Text(
-                      '${v['spz']} ${v['znacka'] != null && v['znacka'].toString().isNotEmpty ? '(${v['znacka']} ${v['model'] ?? ''})' : ''}',
-                      style: const TextStyle(fontWeight: FontWeight.bold),
-                    ),
-                    avatar: const Icon(
-                      Icons.directions_car,
-                      color: Colors.blue,
-                      size: 16,
-                    ),
-                    onPressed: () {
-                      setState(() {
-                        _spzController.text = v['spz'] ?? '';
-                        _vinController.text = v['vin'] ?? '';
-                        _znackaController.text = v['znacka'] ?? '';
-                        _modelController.text = v['model'] ?? '';
-                        _rokVyrobyController.text = v['rok_vyroby'] ?? '';
-                        _motorizaceController.text = v['motorizace'] ?? '';
-                        if (v['palivo'] != null &&
-                            _moznostiPaliva.contains(v['palivo']))
-                          _vybranePalivo = v['palivo'];
-                        if (v['prevodovka'] != null &&
-                            _moznostiPrevodovky.contains(v['prevodovka']))
-                          _vybranaPrevodovka = v['prevodovka'];
-                      });
-                      ScaffoldMessenger.of(context).showSnackBar(
-                        const SnackBar(
-                          content: Text('Údaje o vozidle byly doplněny.'),
-                          backgroundColor: Colors.green,
-                        ),
-                      );
-                    },
-                  ),
-                )
-                .toList(),
-          ),
-        ],
       ],
     ),
   );
@@ -701,7 +649,82 @@ class _MainWizardPageState extends State<MainWizardPage> {
           'Údaje o vozidle',
           style: TextStyle(fontSize: 32, fontWeight: FontWeight.bold),
         ),
-        const SizedBox(height: 40),
+        const SizedBox(height: 30),
+
+        // --- Modrý rámeček s vozidly ---
+        if (_nalezenaVozidla.isNotEmpty) ...[
+          Container(
+            width: double.infinity,
+            padding: const EdgeInsets.all(20),
+            decoration: BoxDecoration(
+              color: Colors.blue.withOpacity(0.05),
+              border: Border.all(color: Colors.blue.withOpacity(0.3)),
+              borderRadius: BorderRadius.circular(15),
+            ),
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                const Row(
+                  children: [
+                    Icon(Icons.directions_car, color: Colors.blue),
+                    SizedBox(width: 10),
+                    Text(
+                      'Zákazník má uložená tato vozidla:',
+                      style: TextStyle(
+                        fontWeight: FontWeight.bold,
+                        color: Colors.blue,
+                      ),
+                    ),
+                  ],
+                ),
+                const SizedBox(height: 15),
+                Wrap(
+                  spacing: 10,
+                  runSpacing: 10,
+                  children: _nalezenaVozidla
+                      .map(
+                        (v) => ActionChip(
+                          backgroundColor: isDark
+                              ? const Color(0xFF2C2C2C)
+                              : Colors.white,
+                          side: const BorderSide(color: Colors.blue),
+                          label: Text(
+                            '${v['spz']} ${v['znacka'] != null && v['znacka'].toString().isNotEmpty ? '(${v['znacka']} ${v['model'] ?? ''})' : ''}',
+                            style: const TextStyle(fontWeight: FontWeight.bold),
+                          ),
+                          onPressed: () {
+                            setState(() {
+                              _spzController.text = v['spz'] ?? '';
+                              _vinController.text = v['vin'] ?? '';
+                              _znackaController.text = v['znacka'] ?? '';
+                              _modelController.text = v['model'] ?? '';
+                              _rokVyrobyController.text = v['rok_vyroby'] ?? '';
+                              _motorizaceController.text =
+                                  v['motorizace'] ?? '';
+                              if (v['palivo'] != null &&
+                                  _moznostiPaliva.contains(v['palivo']))
+                                _vybranePalivo = v['palivo'];
+                              if (v['prevodovka'] != null &&
+                                  _moznostiPrevodovky.contains(v['prevodovka']))
+                                _vybranaPrevodovka = v['prevodovka'];
+                            });
+                            ScaffoldMessenger.of(context).showSnackBar(
+                              const SnackBar(
+                                content: Text('Údaje o vozidle byly doplněny.'),
+                                backgroundColor: Colors.green,
+                              ),
+                            );
+                          },
+                        ),
+                      )
+                      .toList(),
+                ),
+              ],
+            ),
+          ),
+          const SizedBox(height: 30),
+        ],
+
         _buildInput(
           'Číslo zakázky *',
           Icons.onetwothree,
