@@ -4,6 +4,7 @@ import 'prijem_vozidla.dart';
 import 'prubeh.dart';
 import 'historie.dart';
 import 'zakaznici.dart';
+import 'vozidla.dart'; // <--- NOVÝ IMPORT
 import 'fakturace.dart';
 import 'statistiky.dart';
 import 'nastaveni.dart';
@@ -17,13 +18,11 @@ class MainScreen extends StatefulWidget {
 class _MainScreenState extends State<MainScreen> {
   int _currentIndex = 0;
 
-  // Nyní máme v hlavní liště jen 4 obrazovky.
-  // Moduly z menu se budou otevírat jako nová okna.
   final List<Widget> _pages = [
     const MainWizardPage(),
     const ServiceProgressPage(),
     const HistoryPage(),
-    const MenuPage(), // <--- Naše nové dlaždicové Menu
+    const MenuPage(),
   ];
 
   @override
@@ -93,7 +92,6 @@ class _MainScreenState extends State<MainScreen> {
             selectedIcon: Icon(Icons.history_rounded),
             label: 'Historie',
           ),
-          // --- IKONA PRO NOVÉ MENU ---
           NavigationDestination(
             icon: Icon(Icons.grid_view),
             selectedIcon: Icon(Icons.grid_view_rounded),
@@ -104,10 +102,6 @@ class _MainScreenState extends State<MainScreen> {
     );
   }
 }
-
-// ============================================================================
-// NOVÁ TŘÍDA PRO DLAŽDICOVÉ MENU
-// ============================================================================
 
 class MenuPage extends StatelessWidget {
   const MenuPage({super.key});
@@ -131,18 +125,18 @@ class MenuPage extends StatelessWidget {
           const Padding(
             padding: EdgeInsets.only(left: 10, bottom: 20),
             child: Text(
-              'Správa zákazníků, fakturace a nastavení servisu.',
+              'Správa servisu a zákazníků.',
               style: TextStyle(color: Colors.grey),
             ),
           ),
 
           GridView.count(
-            crossAxisCount: 2, // Dva sloupce
+            crossAxisCount: 2,
             shrinkWrap: true,
             physics: const NeverScrollableScrollPhysics(),
             mainAxisSpacing: 15,
             crossAxisSpacing: 15,
-            childAspectRatio: 1.1, // Aby byly dlaždice trošku širší než vyšší
+            childAspectRatio: 1.1,
             children: [
               _buildMenuCard(
                 context,
@@ -152,6 +146,14 @@ class MenuPage extends StatelessWidget {
                 const ZakazniciPage(),
                 isDark,
               ),
+              _buildMenuCard(
+                context,
+                'Vozidla',
+                Icons.directions_car,
+                Colors.teal,
+                const VozidlaPage(),
+                isDark,
+              ), // <--- NOVÁ DLAŽDICE
               _buildMenuCard(
                 context,
                 'Faktury',
@@ -177,7 +179,6 @@ class MenuPage extends StatelessWidget {
                 isDark,
               ),
 
-              // --- TADY MÁŠ PŘIPRAVENÉ MÍSTO PRO BUDOUCÍ SKLAD ---
               _buildMenuCard(
                 context,
                 'Sklad dílů',
@@ -194,7 +195,6 @@ class MenuPage extends StatelessWidget {
     );
   }
 
-  // Pomocný widget pro vykreslení jedné dlaždice v menu
   Widget _buildMenuCard(
     BuildContext context,
     String title,
@@ -214,7 +214,6 @@ class MenuPage extends StatelessWidget {
               );
             }
           : () {
-              // Po kliknutí se otevře nová obrazovka s tlačítkem Zpět
               Navigator.push(
                 context,
                 MaterialPageRoute(
@@ -225,6 +224,10 @@ class MenuPage extends StatelessWidget {
                           ? const Color(0xFF1A1A1A)
                           : Colors.white,
                       elevation: 1,
+                      title: Text(
+                        title,
+                        style: const TextStyle(fontWeight: FontWeight.bold),
+                      ),
                     ),
                     body: page,
                   ),

@@ -243,12 +243,22 @@ class ActiveJobScreen extends StatelessWidget {
     return DateFormat('dd.MM.yyyy HH:mm').format(dt);
   }
 
-  void _openAddWorkDialog(BuildContext context) {
+  void _openAddWorkDialog(
+    BuildContext context, {
+    String? initialTitle,
+    Map<String, dynamic>? existingWork,
+    int? editIndex,
+  }) {
     Navigator.push(
       context,
       MaterialPageRoute(
-        builder: (context) =>
-            AddWorkScreen(documentId: documentId, zakazkaId: zakazkaId),
+        builder: (context) => AddWorkScreen(
+          documentId: documentId,
+          zakazkaId: zakazkaId,
+          initialTitle: initialTitle,
+          existingWork: existingWork,
+          editIndex: editIndex,
+        ),
       ),
     );
   }
@@ -1048,6 +1058,8 @@ class ActiveJobScreen extends StatelessWidget {
 
           final provedenePrace =
               data['provedene_prace'] as List<dynamic>? ?? [];
+          final pozadavky =
+              data['pozadavky_zakaznika'] as List<dynamic>? ?? []; // NOVÉ
           final aktualniStav = data['stav_zakazky'] ?? 'Přijato';
           final stav = data['stav_vozidla'] as Map<String, dynamic>? ?? {};
           final zakaznik = data['zakaznik'] as Map<String, dynamic>? ?? {};
@@ -1158,19 +1170,73 @@ class ActiveJobScreen extends StatelessWidget {
                 ),
               ),
               const Divider(height: 1),
-              const Padding(
-                padding: EdgeInsets.fromLTRB(20, 20, 20, 10),
-                child: Text(
-                  'Zaznamenané úkony',
-                  style: TextStyle(fontSize: 20, fontWeight: FontWeight.bold),
-                ),
-              ),
+
+              // --- ZMĚNA: Přepis na jeden velký ListView pro požadavky i úkony ---
               Expanded(
-                child: provedenePrace.isEmpty
-                    ? Center(
+                child: ListView(
+                  padding: const EdgeInsets.all(20),
+                  children: [
+                    // --- ZPRACOVÁNÍ POŽADAVKŮ ---
+                    if (pozadavky.isNotEmpty) ...[
+                      const Text(
+                        'Požadavky od zákazníka (k řešení)',
+                        style: TextStyle(
+                          fontSize: 20,
+                          fontWeight: FontWeight.bold,
+                        ),
+                      ),
+                      const SizedBox(height: 10),
+                      ...pozadavky.map(
+                        (p) => Card(
+                          color: Colors.orange.withOpacity(0.05),
+                          margin: const EdgeInsets.only(bottom: 10),
+                          shape: RoundedRectangleBorder(
+                            borderRadius: BorderRadius.circular(15),
+                            side: BorderSide(
+                              color: Colors.orange.withOpacity(0.3),
+                            ),
+                          ),
+                          child: ListTile(
+                            title: Text(
+                              p.toString(),
+                              style: const TextStyle(
+                                fontWeight: FontWeight.bold,
+                              ),
+                            ),
+                            trailing: ElevatedButton.icon(
+                              icon: const Icon(Icons.build, size: 18),
+                              label: const Text('ZPRACOVAT'),
+                              style: ElevatedButton.styleFrom(
+                                backgroundColor: Colors.orange,
+                                foregroundColor: Colors.white,
+                              ),
+                              onPressed: () => _openAddWorkDialog(
+                                context,
+                                initialTitle: p.toString(),
+                              ),
+                            ),
+                          ),
+                        ),
+                      ),
+                      const Divider(height: 40),
+                    ],
+
+                    // --- ZAZNAMENANÉ ÚKONY ---
+                    const Text(
+                      'Zaznamenané úkony',
+                      style: TextStyle(
+                        fontSize: 20,
+                        fontWeight: FontWeight.bold,
+                      ),
+                    ),
+                    const SizedBox(height: 10),
+
+                    if (provedenePrace.isEmpty)
+                      Center(
                         child: Column(
                           mainAxisAlignment: MainAxisAlignment.center,
                           children: [
+                            const SizedBox(height: 30),
                             Icon(
                               Icons.build_circle_outlined,
                               size: 80,
@@ -1184,159 +1250,169 @@ class ActiveJobScreen extends StatelessWidget {
                           ],
                         ),
                       )
-                    : ListView.builder(
-                        padding: const EdgeInsets.all(20),
-                        itemCount: provedenePrace.length,
-                        itemBuilder: (context, index) {
-                          final prace =
-                              provedenePrace[provedenePrace.length - 1 - index];
-                          final fotky =
-                              prace['fotografie_urls'] as List<dynamic>? ?? [];
-                          final dily =
-                              prace['pouzite_dily'] as List<dynamic>? ?? [];
+                    else
+                      ...List.generate(provedenePrace.length, (index) {
+                        // Invertujeme index pro zobrazení od nejnovějšího
+                        final trueIndex = provedenePrace.length - 1 - index;
+                        final prace = provedenePrace[trueIndex];
+                        final fotky =
+                            prace['fotografie_urls'] as List<dynamic>? ?? [];
+                        final dily =
+                            prace['pouzite_dily'] as List<dynamic>? ?? [];
 
-                          double celkemPrace = (prace['cena_s_dph'] ?? 0.0)
-                              .toDouble();
-                          double celkemDily = 0.0;
-                          for (var dil in dily) {
-                            double pocet = (dil['pocet'] ?? 1.0).toDouble();
-                            double cenaKs = (dil['cena_s_dph'] ?? 0.0)
-                                .toDouble();
-                            celkemDily += (pocet * cenaKs);
-                          }
-                          double celkemUkon = celkemPrace + celkemDily;
+                        double celkemPrace = (prace['cena_s_dph'] ?? 0.0)
+                            .toDouble();
+                        double celkemDily = 0.0;
+                        for (var dil in dily) {
+                          double pocet = (dil['pocet'] ?? 1.0).toDouble();
+                          double cenaKs = (dil['cena_s_dph'] ?? 0.0).toDouble();
+                          celkemDily += (pocet * cenaKs);
+                        }
+                        double celkemUkon = celkemPrace + celkemDily;
 
-                          return Card(
-                            margin: const EdgeInsets.only(bottom: 15),
-                            color: isDark
-                                ? const Color(0xFF1E1E1E)
-                                : Colors.white,
-                            shape: RoundedRectangleBorder(
-                              borderRadius: BorderRadius.circular(15),
-                              side: BorderSide(
-                                color: Colors.blue.withOpacity(0.3),
-                              ),
+                        return Card(
+                          margin: const EdgeInsets.only(bottom: 15),
+                          color: isDark
+                              ? const Color(0xFF1E1E1E)
+                              : Colors.white,
+                          shape: RoundedRectangleBorder(
+                            borderRadius: BorderRadius.circular(15),
+                            side: BorderSide(
+                              color: Colors.blue.withOpacity(0.3),
                             ),
-                            child: Padding(
-                              padding: const EdgeInsets.all(20),
-                              child: Column(
-                                crossAxisAlignment: CrossAxisAlignment.start,
-                                children: [
-                                  Row(
-                                    mainAxisAlignment:
-                                        MainAxisAlignment.spaceBetween,
-                                    children: [
-                                      Expanded(
-                                        child: Text(
-                                          '${prace['nazev']} (Celkem: ${celkemUkon.toStringAsFixed(2)} Kč)',
-                                          style: const TextStyle(
-                                            fontSize: 18,
-                                            fontWeight: FontWeight.bold,
-                                          ),
+                          ),
+                          child: Padding(
+                            padding: const EdgeInsets.all(20),
+                            child: Column(
+                              crossAxisAlignment: CrossAxisAlignment.start,
+                              children: [
+                                Row(
+                                  mainAxisAlignment:
+                                      MainAxisAlignment.spaceBetween,
+                                  children: [
+                                    Expanded(
+                                      child: Text(
+                                        '${prace['nazev']} (Celkem: ${celkemUkon.toStringAsFixed(2)} Kč)',
+                                        style: const TextStyle(
+                                          fontSize: 18,
+                                          fontWeight: FontWeight.bold,
                                         ),
                                       ),
-                                      IconButton(
-                                        onPressed: () =>
-                                            _deleteWork(context, prace),
-                                        icon: const Icon(
-                                          Icons.delete_outline,
-                                          color: Colors.red,
-                                          size: 20,
-                                        ),
+                                    ),
+                                    // TLAČÍTKO EDITACE PŘIDÁNO SEM
+                                    IconButton(
+                                      onPressed: () => _openAddWorkDialog(
+                                        context,
+                                        existingWork: prace,
+                                        editIndex: trueIndex,
                                       ),
-                                    ],
+                                      icon: const Icon(
+                                        Icons.edit,
+                                        color: Colors.blue,
+                                        size: 20,
+                                      ),
+                                    ),
+                                    IconButton(
+                                      onPressed: () =>
+                                          _deleteWork(context, prace),
+                                      icon: const Icon(
+                                        Icons.delete_outline,
+                                        color: Colors.red,
+                                        size: 20,
+                                      ),
+                                    ),
+                                  ],
+                                ),
+                                Text(
+                                  _formatDate(prace['cas']),
+                                  style: const TextStyle(
+                                    fontSize: 12,
+                                    color: Colors.grey,
                                   ),
+                                ),
+                                if (prace['popis'] != null &&
+                                    prace['popis'].toString().isNotEmpty) ...[
+                                  const SizedBox(height: 10),
                                   Text(
-                                    _formatDate(prace['cas']),
-                                    style: const TextStyle(
-                                      fontSize: 12,
+                                    prace['popis'],
+                                    style: const TextStyle(fontSize: 14),
+                                  ),
+                                ],
+                                if (prace['delka_prace'] != null &&
+                                    prace['delka_prace'].toString().isNotEmpty)
+                                  Padding(
+                                    padding: const EdgeInsets.only(top: 4),
+                                    child: Text(
+                                      'Čas práce: ${prace['delka_prace']} h',
+                                      style: const TextStyle(
+                                        fontWeight: FontWeight.w500,
+                                        color: Colors.blue,
+                                      ),
+                                    ),
+                                  ),
+                                if (dily.isNotEmpty) ...[
+                                  const SizedBox(height: 10),
+                                  const Text(
+                                    'Použité díly:',
+                                    style: TextStyle(
+                                      fontWeight: FontWeight.bold,
+                                      fontSize: 13,
                                       color: Colors.grey,
                                     ),
                                   ),
-                                  if (prace['popis'] != null &&
-                                      prace['popis'].toString().isNotEmpty) ...[
-                                    const SizedBox(height: 10),
-                                    Text(
-                                      prace['popis'],
-                                      style: const TextStyle(fontSize: 14),
-                                    ),
-                                  ],
-                                  if (prace['delka_prace'] != null &&
-                                      prace['delka_prace']
-                                          .toString()
-                                          .isNotEmpty)
-                                    Padding(
-                                      padding: const EdgeInsets.only(top: 4),
-                                      child: Text(
-                                        'Čas práce: ${prace['delka_prace']} h',
-                                        style: const TextStyle(
-                                          fontWeight: FontWeight.w500,
-                                          color: Colors.blue,
-                                        ),
-                                      ),
-                                    ),
-                                  if (dily.isNotEmpty) ...[
-                                    const SizedBox(height: 10),
-                                    const Text(
-                                      'Použité díly:',
-                                      style: TextStyle(
-                                        fontWeight: FontWeight.bold,
-                                        fontSize: 13,
-                                        color: Colors.grey,
-                                      ),
-                                    ),
-                                    ...dily
-                                        .map(
-                                          (dil) => Padding(
-                                            padding: const EdgeInsets.only(
-                                              top: 4,
-                                              left: 10,
-                                            ),
-                                            child: Text(
-                                              '• ${dil['nazev']} (${dil['cislo']}) - ${dil['pocet']} ks - ${dil['cena_s_dph']} Kč',
-                                              style: const TextStyle(
-                                                fontSize: 13,
-                                              ),
+                                  ...dily
+                                      .map(
+                                        (dil) => Padding(
+                                          padding: const EdgeInsets.only(
+                                            top: 4,
+                                            left: 10,
+                                          ),
+                                          child: Text(
+                                            '• ${dil['nazev']} (${dil['cislo']}) - ${dil['pocet']} ks - ${dil['cena_s_dph']} Kč',
+                                            style: const TextStyle(
+                                              fontSize: 13,
                                             ),
                                           ),
-                                        )
-                                        .toList(),
-                                  ],
-                                  if (fotky.isNotEmpty)
-                                    Padding(
-                                      padding: const EdgeInsets.only(top: 15),
-                                      child: SizedBox(
-                                        height: 100,
-                                        child: ListView.separated(
-                                          scrollDirection: Axis.horizontal,
-                                          itemCount: fotky.length,
-                                          separatorBuilder: (c, i) =>
-                                              const SizedBox(width: 10),
-                                          itemBuilder: (c, i) =>
-                                              GestureDetector(
-                                                onTap: () => html.window.open(
-                                                  fotky[i],
-                                                  "_blank",
-                                                ),
-                                                child: ClipRRect(
-                                                  borderRadius:
-                                                      BorderRadius.circular(8),
-                                                  child: Image.network(
-                                                    fotky[i],
-                                                    width: 140,
-                                                    fit: BoxFit.cover,
-                                                  ),
-                                                ),
-                                              ),
+                                        ),
+                                      )
+                                      .toList(),
+                                ],
+                                if (fotky.isNotEmpty)
+                                  Padding(
+                                    padding: const EdgeInsets.only(top: 15),
+                                    child: SizedBox(
+                                      height: 100,
+                                      child: ListView.separated(
+                                        scrollDirection: Axis.horizontal,
+                                        itemCount: fotky.length,
+                                        separatorBuilder: (c, i) =>
+                                            const SizedBox(width: 10),
+                                        itemBuilder: (c, i) => GestureDetector(
+                                          onTap: () => html.window.open(
+                                            fotky[i],
+                                            "_blank",
+                                          ),
+                                          child: ClipRRect(
+                                            borderRadius: BorderRadius.circular(
+                                              8,
+                                            ),
+                                            child: Image.network(
+                                              fotky[i],
+                                              width: 140,
+                                              fit: BoxFit.cover,
+                                            ),
+                                          ),
                                         ),
                                       ),
                                     ),
-                                ],
-                              ),
+                                  ),
+                              ],
                             ),
-                          );
-                        },
-                      ),
+                          ),
+                        );
+                      }),
+                  ],
+                ),
               ),
               Container(
                 width: double.infinity,
@@ -1406,11 +1482,18 @@ class ActiveJobScreen extends StatelessWidget {
 class AddWorkScreen extends StatefulWidget {
   final String documentId;
   final String zakazkaId;
+  // --- NOVÉ PROMENNÉ PRO EDITACI A POŽADAVKY ---
+  final String? initialTitle;
+  final Map<String, dynamic>? existingWork;
+  final int? editIndex;
 
   const AddWorkScreen({
     super.key,
     required this.documentId,
     required this.zakazkaId,
+    this.initialTitle,
+    this.existingWork,
+    this.editIndex,
   });
 
   @override
@@ -1438,6 +1521,37 @@ class _AddWorkScreenState extends State<AddWorkScreen> {
   void initState() {
     super.initState();
     _nactiHodinovouSazbu();
+
+    // Pokud jsme rozklikli požadavek, předvyplníme název
+    if (widget.initialTitle != null) {
+      _nazevController.text = widget.initialTitle!;
+    }
+
+    // Pokud editujeme existující úkon, předvyplníme vše
+    if (widget.existingWork != null) {
+      _nazevController.text = widget.existingWork!['nazev'] ?? '';
+      _popisController.text = widget.existingWork!['popis'] ?? '';
+      _delkaController.text = widget.existingWork!['delka_prace'] ?? '';
+      _praceCenaBezDphController.text =
+          (widget.existingWork!['cena_bez_dph'] ?? 0.0).toStringAsFixed(2);
+      _praceCenaSDphController.text =
+          (widget.existingWork!['cena_s_dph'] ?? 0.0).toStringAsFixed(2);
+
+      final dily = widget.existingWork!['pouzite_dily'] as List<dynamic>? ?? [];
+      for (var d in dily) {
+        final input = DilInput();
+        input.cislo.text = d['cislo'] ?? '';
+        input.nazev.text = d['nazev'] ?? '';
+        input.pocet.text = (d['pocet'] ?? 1.0).toString();
+        input.cenaBezDph.text = (d['cena_bez_dph'] ?? 0.0).toStringAsFixed(2);
+        input.cenaSDph.text = (d['cena_s_dph'] ?? 0.0).toStringAsFixed(2);
+        _dilyInputs.add(input);
+      }
+
+      WidgetsBinding.instance.addPostFrameCallback((_) {
+        _prepocitatCelkem();
+      });
+    }
   }
 
   Future<void> _nactiHodinovouSazbu() async {
@@ -1553,6 +1667,7 @@ class _AddWorkScreenState extends State<AddWorkScreen> {
       final user = FirebaseAuth.instance.currentUser;
       List<String> uploadedUrls = [];
 
+      // Nahrání případných NOVÝCH fotek
       for (int i = 0; i < _workImages.length; i++) {
         String fileName =
             'prace_${DateTime.now().millisecondsSinceEpoch}_$i.jpg';
@@ -1581,31 +1696,69 @@ class _AddWorkScreenState extends State<AddWorkScreen> {
           .where((d) => d['nazev'].toString().isNotEmpty)
           .toList();
 
-      await FirebaseFirestore.instance
-          .collection('zakazky')
-          .doc(widget.documentId)
-          .update({
-            'provedene_prace': FieldValue.arrayUnion([
-              {
-                'nazev': _nazevController.text.trim(),
-                'popis': _popisController.text.trim(),
-                'pouzite_dily': pouziteDily,
-                'delka_prace': _delkaController.text.trim(),
-                'cena_bez_dph':
-                    double.tryParse(
-                      _praceCenaBezDphController.text.replaceAll(',', '.'),
-                    ) ??
-                    0.0,
-                'cena_s_dph':
-                    double.tryParse(
-                      _praceCenaSDphController.text.replaceAll(',', '.'),
-                    ) ??
-                    0.0,
-                'cas': Timestamp.now(),
-                'fotografie_urls': uploadedUrls,
-              },
-            ]),
-          });
+      // Pokud editujeme, spojíme staré fotky s novými
+      List<String> finalFotky = [];
+      if (widget.existingWork != null) {
+        finalFotky.addAll(
+          List<String>.from(widget.existingWork!['fotografie_urls'] ?? []),
+        );
+      }
+      finalFotky.addAll(uploadedUrls);
+
+      Map<String, dynamic> novyUkon = {
+        'nazev': _nazevController.text.trim(),
+        'popis': _popisController.text.trim(),
+        'pouzite_dily': pouziteDily,
+        'delka_prace': _delkaController.text.trim(),
+        'cena_bez_dph':
+            double.tryParse(
+              _praceCenaBezDphController.text.replaceAll(',', '.'),
+            ) ??
+            0.0,
+        'cena_s_dph':
+            double.tryParse(
+              _praceCenaSDphController.text.replaceAll(',', '.'),
+            ) ??
+            0.0,
+        'cas':
+            widget.existingWork?['cas'] ??
+            Timestamp.now(), // Při editaci zachovat původní čas
+        'fotografie_urls': finalFotky,
+      };
+
+      // ROZHODOVÁNÍ: Editace nebo nový zápis
+      if (widget.editIndex != null) {
+        // Editace starého úkonu (bezpečná úprava pole přes index)
+        final doc = await FirebaseFirestore.instance
+            .collection('zakazky')
+            .doc(widget.documentId)
+            .get();
+        List<dynamic> prace = List.from(doc.data()?['provedene_prace'] ?? []);
+        if (widget.editIndex! >= 0 && widget.editIndex! < prace.length) {
+          prace[widget.editIndex!] = novyUkon;
+          await FirebaseFirestore.instance
+              .collection('zakazky')
+              .doc(widget.documentId)
+              .update({'provedene_prace': prace});
+        }
+      } else {
+        // Zápis nového úkonu
+        Map<String, dynamic> updates = {
+          'provedene_prace': FieldValue.arrayUnion([novyUkon]),
+        };
+
+        // Pokud jsme "Zpracovávali" požadavek z příjmu, rovnou ho smažeme ze seznamu požadavků
+        if (widget.initialTitle != null) {
+          updates['pozadavky_zakaznika'] = FieldValue.arrayRemove([
+            widget.initialTitle,
+          ]);
+        }
+
+        await FirebaseFirestore.instance
+            .collection('zakazky')
+            .doc(widget.documentId)
+            .update(updates);
+      }
 
       if (mounted) Navigator.pop(context);
     } catch (e) {
@@ -1623,7 +1776,9 @@ class _AddWorkScreenState extends State<AddWorkScreen> {
     return Scaffold(
       backgroundColor: Theme.of(context).colorScheme.surface,
       appBar: AppBar(
-        title: const Text('Nová položka dokladu'),
+        title: Text(
+          widget.existingWork != null ? 'Úprava úkonu' : 'Nová položka dokladu',
+        ),
         backgroundColor: isDark ? const Color(0xFF1A1A1A) : Colors.white,
       ),
       body: Column(
