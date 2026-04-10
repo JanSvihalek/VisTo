@@ -12,6 +12,7 @@ class _SettingsPageState extends State<SettingsPage> {
   final _nazevController = TextEditingController();
   final _icoController = TextEditingController();
   final _sazbaController = TextEditingController();
+  final _prefixController = TextEditingController(); // NOVÉ: Políčko pro prefix
   bool _isLoading = true;
   bool _isSaving = false;
 
@@ -33,6 +34,8 @@ class _SettingsPageState extends State<SettingsPage> {
         _nazevController.text = data['nazev_servisu'] ?? '';
         _icoController.text = data['ico_servisu'] ?? '';
         _sazbaController.text = (data['hodinova_sazba'] ?? 0.0).toString();
+        _prefixController.text =
+            data['prefix_zakazky'] ?? 'ZAK'; // Načtení prefixu
       }
     }
     if (mounted) setState(() => _isLoading = false);
@@ -52,6 +55,10 @@ class _SettingsPageState extends State<SettingsPage> {
               'hodinova_sazba':
                   double.tryParse(_sazbaController.text.replaceAll(',', '.')) ??
                   0.0,
+              // Uložení prefixu (pokud je prázdný, vrátí tam výchozí ZAK)
+              'prefix_zakazky': _prefixController.text.trim().isEmpty
+                  ? 'ZAK'
+                  : _prefixController.text.trim().toUpperCase(),
             }, SetOptions(merge: true));
         ScaffoldMessenger.of(context).showSnackBar(
           const SnackBar(
@@ -117,6 +124,15 @@ class _SettingsPageState extends State<SettingsPage> {
             isDark,
             isNumber: true,
           ),
+          const SizedBox(height: 20),
+          // NOVÉ: Políčko pro zadání prefixu v UI
+          _buildSettingsInput(
+            'Vlastní text čísla zakázky (předpona)',
+            Icons.abc,
+            _prefixController,
+            isDark,
+            caps: true,
+          ),
 
           const SizedBox(height: 40),
           SizedBox(
@@ -175,12 +191,14 @@ class _SettingsPageState extends State<SettingsPage> {
     );
   }
 
+  // Přidána podpora pro velká písmena (caps)
   Widget _buildSettingsInput(
     String label,
     IconData icon,
     TextEditingController controller,
     bool isDark, {
     bool isNumber = false,
+    bool caps = false,
   }) {
     return Column(
       crossAxisAlignment: CrossAxisAlignment.start,
@@ -210,6 +228,9 @@ class _SettingsPageState extends State<SettingsPage> {
             keyboardType: isNumber
                 ? const TextInputType.numberWithOptions(decimal: true)
                 : TextInputType.text,
+            textCapitalization: caps
+                ? TextCapitalization.characters
+                : TextCapitalization.none,
             decoration: InputDecoration(
               prefixIcon: Icon(icon, color: Colors.blue),
               filled: true,

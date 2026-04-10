@@ -9,6 +9,7 @@ import 'package:signature/signature.dart';
 import 'package:firebase_auth/firebase_auth.dart';
 import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:firebase_storage/firebase_storage.dart';
+import 'package:intl/intl.dart';
 import '../core/constants.dart';
 
 class MainWizardPage extends StatefulWidget {
@@ -23,6 +24,8 @@ class _MainWizardPageState extends State<MainWizardPage> {
   final int _totalPages = 5;
   bool _isUploading = false;
   bool _isLoadingAres = false;
+  bool _isCheckingZakazka = false;
+  bool _isGeneratingCislo = false;
 
   final _jmenoController = TextEditingController();
   final _icoController = TextEditingController();
@@ -83,6 +86,86 @@ class _MainWizardPageState extends State<MainWizardPage> {
     penColor: Colors.black,
     exportBackgroundColor: Colors.white,
   );
+
+  @override
+  void initState() {
+    super.initState();
+    _generujCisloZakazky();
+  }
+
+  // --- UPRAVENO: Načtení prefixu z nastavení a bezpečné řazení ---
+  Future<void> _generujCisloZakazky() async {
+    setState(() => _isGeneratingCislo = true);
+
+    String prefixBase = 'ZAK'; // Výchozí stav
+
+    try {
+      final user = FirebaseAuth.instance.currentUser;
+      if (user == null) return;
+
+      // 1. Získání vlastního prefixu z nastavení servisu
+      final nastaveniDoc = await FirebaseFirestore.instance
+          .collection('nastaveni_servisu')
+          .doc(user.uid)
+          .get();
+      if (nastaveniDoc.exists &&
+          nastaveniDoc.data()!.containsKey('prefix_zakazky')) {
+        final storedPrefix = nastaveniDoc
+            .data()!['prefix_zakazky']
+            .toString()
+            .trim();
+        if (storedPrefix.isNotEmpty) prefixBase = storedPrefix;
+      }
+
+      // 2. Sestavení dnešního prefixu (např. OPRAVA-260410-)
+      final todayPrefix = DateFormat('yyMMdd').format(DateTime.now());
+      final prefix = '$prefixBase-$todayPrefix-';
+
+      // 3. Šikovnější dotaz, který nepotřebuje nový speciální index ve Firebase
+      // (Podíváme se prostě na posledních pár zakázek seřazených podle času)
+      final querySnapshot = await FirebaseFirestore.instance
+          .collection('zakazky')
+          .where('servis_id', isEqualTo: user.uid)
+          .orderBy('cas_prijeti', descending: true)
+          .limit(20)
+          .get();
+
+      int nextNumber = 1;
+
+      // 4. Najdeme tu nejnovější, která patří do dnešního dne
+      for (var doc in querySnapshot.docs) {
+        final data = doc.data() as Map<String, dynamic>;
+        final cislo = data['cislo_zakazky']?.toString() ?? '';
+
+        if (cislo.startsWith(prefix)) {
+          // Odřízneme text předpon a necháme jen koncové číslo
+          final koncovka = cislo.substring(prefix.length);
+          final lastIncrement = int.tryParse(koncovka) ?? 0;
+          nextNumber = lastIncrement + 1;
+          break; // Našli jsme tu největší, můžeme cyklus ukončit
+        }
+      }
+
+      if (mounted) {
+        setState(() {
+          // Vytvoří číslo s nulami na začátku, např. 0001
+          _zakazkaController.text =
+              '$prefix${nextNumber.toString().padLeft(4, '0')}';
+        });
+      }
+    } catch (e) {
+      debugPrint('Chyba při generování čísla: $e');
+      // Záložní řešení, pokud by např. selhal internet (nyní s TVÝM prefixem)
+      if (mounted) {
+        final todayPrefix = DateFormat('yyMMdd').format(DateTime.now());
+        setState(() {
+          _zakazkaController.text = '$prefixBase-$todayPrefix-0001';
+        });
+      }
+    } finally {
+      if (mounted) setState(() => _isGeneratingCislo = false);
+    }
+  }
 
   @override
   void dispose() {
@@ -170,18 +253,20 @@ class _MainWizardPageState extends State<MainWizardPage> {
                   .map((d) => d.data() as Map<String, dynamic>)
                   .toList();
             });
-            _moveNext(); // <--- Přidáno automatické přeskočení
+            _moveNext();
           }
         },
       ),
     );
   }
 
-  void _moveNext() {
+  Future<void> _moveNext() async {
     FocusScope.of(context).unfocus();
+
     if (_currentPage == 1) {
-      if (_zakazkaController.text.trim().isEmpty ||
-          _spzController.text.trim().isEmpty) {
+      final zadaneCislo = _zakazkaController.text.trim();
+
+      if (zadaneCislo.isEmpty || _spzController.text.trim().isEmpty) {
         ScaffoldMessenger.of(context).showSnackBar(
           const SnackBar(
             content: Text('Číslo zakázky a SPZ jsou povinné údaje!'),
@@ -191,7 +276,38 @@ class _MainWizardPageState extends State<MainWizardPage> {
         );
         return;
       }
+
+      setState(() => _isCheckingZakazka = true);
+      try {
+        final user = FirebaseAuth.instance.currentUser;
+        if (user != null) {
+          final docSnap = await FirebaseFirestore.instance
+              .collection('zakazky')
+              .where('servis_id', isEqualTo: user.uid)
+              .where('cislo_zakazky', isEqualTo: zadaneCislo)
+              .get();
+
+          if (docSnap.docs.isNotEmpty) {
+            ScaffoldMessenger.of(context).showSnackBar(
+              const SnackBar(
+                content: Text(
+                  'Toto číslo zakázky již v databázi existuje! Zadejte prosím jiné.',
+                ),
+                backgroundColor: Colors.red,
+                duration: Duration(seconds: 4),
+              ),
+            );
+            setState(() => _isCheckingZakazka = false);
+            return;
+          }
+        }
+      } catch (e) {
+        debugPrint('Chyba při kontrole čísla: $e');
+      } finally {
+        if (mounted) setState(() => _isCheckingZakazka = false);
+      }
     }
+
     if (_currentPage == _totalPages - 1) {
       if (_signatureController.isEmpty) {
         ScaffoldMessenger.of(context).showSnackBar(
@@ -251,9 +367,7 @@ class _MainWizardPageState extends State<MainWizardPage> {
     if (user == null) throw Exception('Nejste přihlášeni!');
 
     final Map<String, List<String>> imageUrlsByCategory = {};
-    String zakazkaId = _zakazkaController.text.trim().isEmpty
-        ? 'ID_${DateTime.now().millisecondsSinceEpoch}'
-        : _zakazkaController.text.trim();
+    String zakazkaId = _zakazkaController.text.trim();
 
     for (var entry in _categoryImages.entries) {
       final categoryKey = entry.key;
@@ -375,7 +489,6 @@ class _MainWizardPageState extends State<MainWizardPage> {
     _vybranyZakaznikId = null;
     _nalezenaVozidla.clear();
 
-    _zakazkaController.clear();
     _spzController.clear();
     _vinController.clear();
     _znackaController.clear();
@@ -393,10 +506,11 @@ class _MainWizardPageState extends State<MainWizardPage> {
     _pneuPPController.clear();
     _pneuLZController.clear();
     _pneuPZController.clear();
-
     _tachometrController.clear();
     _stavNadrze = 50.0;
     _signatureController.clear();
+
+    _generujCisloZakazky();
 
     setState(() => _currentPage = 0);
     _pageController.jumpToPage(0);
@@ -651,7 +765,6 @@ class _MainWizardPageState extends State<MainWizardPage> {
         ),
         const SizedBox(height: 30),
 
-        // --- Modrý rámeček s vozidly ---
         if (_nalezenaVozidla.isNotEmpty) ...[
           Container(
             width: double.infinity,
@@ -731,7 +844,22 @@ class _MainWizardPageState extends State<MainWizardPage> {
           _zakazkaController,
           isDark,
           caps: true,
+          customSuffix: _isGeneratingCislo
+              ? const Padding(
+                  padding: EdgeInsets.all(12),
+                  child: SizedBox(
+                    width: 20,
+                    height: 20,
+                    child: CircularProgressIndicator(strokeWidth: 2),
+                  ),
+                )
+              : IconButton(
+                  icon: const Icon(Icons.refresh, color: Colors.blue),
+                  onPressed: _generujCisloZakazky,
+                  tooltip: 'Vygenerovat nové číslo',
+                ),
         ),
+
         const SizedBox(height: 20),
         _buildInput(
           'SPZ vozidla *',
@@ -1333,7 +1461,10 @@ class _MainWizardPageState extends State<MainWizardPage> {
               if (_currentPage > 0) const SizedBox(width: 15),
               Expanded(
                 child: ElevatedButton(
-                  onPressed: _moveNext,
+                  onPressed:
+                      (_isCheckingZakazka || _isUploading || _isGeneratingCislo)
+                      ? null
+                      : _moveNext,
                   style: ElevatedButton.styleFrom(
                     backgroundColor: Colors.blue,
                     foregroundColor: Colors.white,
@@ -1342,12 +1473,22 @@ class _MainWizardPageState extends State<MainWizardPage> {
                       borderRadius: BorderRadius.circular(18),
                     ),
                   ),
-                  child: Text(
-                    _currentPage == _totalPages - 1
-                        ? 'DOKONČIT A ODESLAT'
-                        : 'DALŠÍ KROK',
-                    style: const TextStyle(fontWeight: FontWeight.bold),
-                  ),
+                  child:
+                      (_isCheckingZakazka || _isUploading || _isGeneratingCislo)
+                      ? const SizedBox(
+                          width: 20,
+                          height: 20,
+                          child: CircularProgressIndicator(
+                            color: Colors.white,
+                            strokeWidth: 2,
+                          ),
+                        )
+                      : Text(
+                          _currentPage == _totalPages - 1
+                              ? 'DOKONČIT A ODESLAT'
+                              : 'DALŠÍ KROK',
+                          style: const TextStyle(fontWeight: FontWeight.bold),
+                        ),
                 ),
               ),
             ],
