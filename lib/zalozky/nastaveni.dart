@@ -12,7 +12,13 @@ class _SettingsPageState extends State<SettingsPage> {
   final _nazevController = TextEditingController();
   final _icoController = TextEditingController();
   final _sazbaController = TextEditingController();
-  final _prefixController = TextEditingController(); // NOVÉ: Políčko pro prefix
+  final _prefixController = TextEditingController(); 
+  
+  final _dicController = TextEditingController();
+  final _bankaController = TextEditingController();
+  final _registraceController = TextEditingController();
+  bool _jePlatceDph = false;
+
   bool _isLoading = true;
   bool _isSaving = false;
 
@@ -25,17 +31,17 @@ class _SettingsPageState extends State<SettingsPage> {
   Future<void> _loadSettings() async {
     final user = FirebaseAuth.instance.currentUser;
     if (user != null) {
-      final doc = await FirebaseFirestore.instance
-          .collection('nastaveni_servisu')
-          .doc(user.uid)
-          .get();
+      final doc = await FirebaseFirestore.instance.collection('nastaveni_servisu').doc(user.uid).get();
       if (doc.exists) {
         final data = doc.data()!;
         _nazevController.text = data['nazev_servisu'] ?? '';
         _icoController.text = data['ico_servisu'] ?? '';
         _sazbaController.text = (data['hodinova_sazba'] ?? 0.0).toString();
-        _prefixController.text =
-            data['prefix_zakazky'] ?? 'ZAK'; // Načtení prefixu
+        _prefixController.text = data['prefix_zakazky'] ?? 'ZAK';
+        _dicController.text = data['dic_servisu'] ?? '';
+        _bankaController.text = data['banka_servisu'] ?? '';
+        _registraceController.text = data['registrace_servisu'] ?? '';
+        _jePlatceDph = data['platce_dph'] ?? false;
       }
     }
     if (mounted) setState(() => _isLoading = false);
@@ -46,34 +52,20 @@ class _SettingsPageState extends State<SettingsPage> {
     try {
       final user = FirebaseAuth.instance.currentUser;
       if (user != null) {
-        await FirebaseFirestore.instance
-            .collection('nastaveni_servisu')
-            .doc(user.uid)
-            .set({
-              'nazev_servisu': _nazevController.text.trim(),
-              'ico_servisu': _icoController.text.trim(),
-              'hodinova_sazba':
-                  double.tryParse(_sazbaController.text.replaceAll(',', '.')) ??
-                  0.0,
-              // Uložení prefixu (pokud je prázdný, vrátí tam výchozí ZAK)
-              'prefix_zakazky': _prefixController.text.trim().isEmpty
-                  ? 'ZAK'
-                  : _prefixController.text.trim().toUpperCase(),
-            }, SetOptions(merge: true));
-        ScaffoldMessenger.of(context).showSnackBar(
-          const SnackBar(
-            content: Text('Nastavení úspěšně uloženo.'),
-            backgroundColor: Colors.green,
-          ),
-        );
+        await FirebaseFirestore.instance.collection('nastaveni_servisu').doc(user.uid).set({
+          'nazev_servisu': _nazevController.text.trim(),
+          'ico_servisu': _icoController.text.trim(),
+          'hodinova_sazba': double.tryParse(_sazbaController.text.replaceAll(',', '.')) ?? 0.0,
+          'prefix_zakazky': _prefixController.text.trim().isEmpty ? 'ZAK' : _prefixController.text.trim().toUpperCase(),
+          'dic_servisu': _dicController.text.trim(),
+          'banka_servisu': _bankaController.text.trim(),
+          'registrace_servisu': _registraceController.text.trim(),
+          'platce_dph': _jePlatceDph,
+        }, SetOptions(merge: true));
+        ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('Nastavení úspěšně uloženo.'), backgroundColor: Colors.green));
       }
     } catch (e) {
-      ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(
-          content: Text('Chyba při ukládání: $e'),
-          backgroundColor: Colors.red,
-        ),
-      );
+      ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text('Chyba při ukládání: $e'), backgroundColor: Colors.red));
     } finally {
       if (mounted) setState(() => _isSaving = false);
     }
@@ -91,75 +83,48 @@ class _SettingsPageState extends State<SettingsPage> {
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
-          const Text(
-            'Nastavení servisu',
-            style: TextStyle(fontSize: 32, fontWeight: FontWeight.bold),
-          ),
+          const Text('Nastavení servisu', style: TextStyle(fontSize: 32, fontWeight: FontWeight.bold)),
           const SizedBox(height: 10),
-          Text(
-            'Přihlášen jako: ${user?.email ?? "Neznámý uživatel"}',
-            style: const TextStyle(color: Colors.grey),
-          ),
+          Text('Přihlášen jako: ${user?.email ?? "Neznámý uživatel"}', style: const TextStyle(color: Colors.grey)),
           const SizedBox(height: 40),
 
-          _buildSettingsInput(
-            'Název servisu (Zobrazí se v PDF)',
-            Icons.business,
-            _nazevController,
-            isDark,
-          ),
+          _buildSettingsInput('Název servisu (Zobrazí se v PDF)', Icons.business, _nazevController, isDark),
           const SizedBox(height: 20),
-          _buildSettingsInput(
-            'IČO servisu (Zobrazí se v PDF)',
-            Icons.numbers,
-            _icoController,
-            isDark,
-            isNumber: true,
-          ),
+          _buildSettingsInput('IČO servisu (Zobrazí se v PDF)', Icons.numbers, _icoController, isDark, isNumber: true),
           const SizedBox(height: 20),
-          _buildSettingsInput(
-            'Hodinová sazba bez DPH (Kč)',
-            Icons.attach_money,
-            _sazbaController,
-            isDark,
-            isNumber: true,
+          
+          Container(
+            padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 5),
+            decoration: BoxDecoration(color: isDark ? const Color(0xFF1E1E1E) : Colors.white, borderRadius: BorderRadius.circular(15), border: Border.all(color: isDark ? Colors.grey[800]! : Colors.grey[300]!)),
+            child: SwitchListTile(
+              title: const Text('Plátce DPH', style: TextStyle(fontWeight: FontWeight.bold)),
+              value: _jePlatceDph,
+              activeColor: Colors.blue,
+              onChanged: (val) => setState(() => _jePlatceDph = val),
+            ),
           ),
+          if (_jePlatceDph) ...[
+            const SizedBox(height: 20),
+            _buildSettingsInput('DIČ (např. CZ12345678)', Icons.assignment_ind, _dicController, isDark, caps: true),
+          ],
+          
           const SizedBox(height: 20),
-          // NOVÉ: Políčko pro zadání prefixu v UI
-          _buildSettingsInput(
-            'Vlastní text čísla zakázky (předpona)',
-            Icons.abc,
-            _prefixController,
-            isDark,
-            caps: true,
-          ),
-
+          _buildSettingsInput('Bankovní účet', Icons.account_balance, _bankaController, isDark),
+          const SizedBox(height: 20),
+          _buildSettingsInput('Zápis v rejstříku (ŽÚ/OR)', Icons.gavel, _registraceController, isDark),
+          
+          const Divider(height: 40),
+          _buildSettingsInput('Hodinová sazba bez DPH (Kč)', Icons.attach_money, _sazbaController, isDark, isNumber: true),
+          const SizedBox(height: 20),
+          _buildSettingsInput('Vlastní text čísla zakázky (předpona)', Icons.abc, _prefixController, isDark, caps: true),
+          
           const SizedBox(height: 40),
           SizedBox(
             width: double.infinity,
             child: ElevatedButton(
               onPressed: _isSaving ? null : _saveSettings,
-              style: ElevatedButton.styleFrom(
-                backgroundColor: Colors.blue,
-                foregroundColor: Colors.white,
-                padding: const EdgeInsets.symmetric(vertical: 18),
-                shape: RoundedRectangleBorder(
-                  borderRadius: BorderRadius.circular(15),
-                ),
-              ),
-              child: _isSaving
-                  ? const SizedBox(
-                      height: 20,
-                      width: 20,
-                      child: CircularProgressIndicator(
-                        color: Colors.white,
-                        strokeWidth: 2,
-                      ),
-                    )
-                  : const Text(
-                      'ULOŽIT NASTAVENÍ',
-                      style: TextStyle(fontWeight: FontWeight.bold),
-                    ),
+              style: ElevatedButton.styleFrom(backgroundColor: Colors.blue, foregroundColor: Colors.white, padding: const EdgeInsets.symmetric(vertical: 18), shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(15))),
+              child: _isSaving ? const SizedBox(height: 20, width: 20, child: CircularProgressIndicator(color: Colors.white, strokeWidth: 2)) : const Text('ULOŽIT NASTAVENÍ', style: TextStyle(fontWeight: FontWeight.bold)),
             ),
           ),
           const SizedBox(height: 40),
@@ -170,90 +135,28 @@ class _SettingsPageState extends State<SettingsPage> {
             child: OutlinedButton.icon(
               onPressed: () => FirebaseAuth.instance.signOut(),
               icon: const Icon(Icons.logout, color: Colors.red),
-              label: const Text(
-                'Odhlásit se',
-                style: TextStyle(
-                  color: Colors.red,
-                  fontWeight: FontWeight.bold,
-                ),
-              ),
-              style: OutlinedButton.styleFrom(
-                padding: const EdgeInsets.symmetric(vertical: 15),
-                side: const BorderSide(color: Colors.red),
-                shape: RoundedRectangleBorder(
-                  borderRadius: BorderRadius.circular(15),
-                ),
-              ),
+              label: const Text('Odhlásit se', style: TextStyle(color: Colors.red, fontWeight: FontWeight.bold)),
+              style: OutlinedButton.styleFrom(padding: const EdgeInsets.symmetric(vertical: 15), side: const BorderSide(color: Colors.red), shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(15))),
             ),
-          ),
+          )
         ],
       ),
     );
   }
 
-  // Přidána podpora pro velká písmena (caps)
-  Widget _buildSettingsInput(
-    String label,
-    IconData icon,
-    TextEditingController controller,
-    bool isDark, {
-    bool isNumber = false,
-    bool caps = false,
-  }) {
+  Widget _buildSettingsInput(String label, IconData icon, TextEditingController controller, bool isDark, {bool isNumber = false, bool caps = false}) {
     return Column(
       crossAxisAlignment: CrossAxisAlignment.start,
       children: [
-        Text(
-          label,
-          style: const TextStyle(
-            fontWeight: FontWeight.bold,
-            color: Colors.grey,
-          ),
-        ),
+        Text(label, style: const TextStyle(fontWeight: FontWeight.bold, color: Colors.grey)),
         const SizedBox(height: 8),
         Container(
-          decoration: BoxDecoration(
-            boxShadow: [
-              if (!isDark)
-                BoxShadow(
-                  color: Colors.black.withOpacity(0.05),
-                  blurRadius: 10,
-                  offset: const Offset(0, 4),
-                ),
-            ],
-            borderRadius: BorderRadius.circular(15),
-          ),
+          decoration: BoxDecoration(boxShadow: [if (!isDark) BoxShadow(color: Colors.black.withOpacity(0.05), blurRadius: 10, offset: const Offset(0, 4))], borderRadius: BorderRadius.circular(15)),
           child: TextField(
-            controller: controller,
-            keyboardType: isNumber
-                ? const TextInputType.numberWithOptions(decimal: true)
-                : TextInputType.text,
-            textCapitalization: caps
-                ? TextCapitalization.characters
-                : TextCapitalization.none,
-            decoration: InputDecoration(
-              prefixIcon: Icon(icon, color: Colors.blue),
-              filled: true,
-              fillColor: isDark ? const Color(0xFF1E1E1E) : Colors.white,
-              enabledBorder: OutlineInputBorder(
-                borderRadius: BorderRadius.circular(15),
-                borderSide: BorderSide(
-                  color: isDark ? Colors.grey[800]! : Colors.grey[300]!,
-                  width: 1,
-                ),
-              ),
-              focusedBorder: OutlineInputBorder(
-                borderRadius: BorderRadius.circular(15),
-                borderSide: const BorderSide(color: Colors.blue, width: 2),
-              ),
-              border: OutlineInputBorder(
-                borderRadius: BorderRadius.circular(15),
-                borderSide: BorderSide(
-                  color: isDark ? Colors.grey[800]! : Colors.grey[300]!,
-                  width: 1,
-                ),
-              ),
-            ),
+            controller: controller, 
+            keyboardType: isNumber ? const TextInputType.numberWithOptions(decimal: true) : TextInputType.text,
+            textCapitalization: caps ? TextCapitalization.characters : TextCapitalization.none,
+            decoration: InputDecoration(prefixIcon: Icon(icon, color: Colors.blue), filled: true, fillColor: isDark ? const Color(0xFF1E1E1E) : Colors.white, enabledBorder: OutlineInputBorder(borderRadius: BorderRadius.circular(15), borderSide: BorderSide(color: isDark ? Colors.grey[800]! : Colors.grey[300]!, width: 1)), focusedBorder: OutlineInputBorder(borderRadius: BorderRadius.circular(15), borderSide: const BorderSide(color: Colors.blue, width: 2)), border: OutlineInputBorder(borderRadius: BorderRadius.circular(15), borderSide: BorderSide(color: isDark ? Colors.grey[800]! : Colors.grey[300]!, width: 1))),
           ),
         ),
       ],
