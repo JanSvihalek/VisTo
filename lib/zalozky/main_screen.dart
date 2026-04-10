@@ -3,7 +3,8 @@ import '../core/constants.dart';
 import 'prijem_vozidla.dart';
 import 'prubeh.dart';
 import 'historie.dart';
-import 'zakaznici.dart'; // <--- PŘIDANÝ IMPORT
+import 'zakaznici.dart';
+import 'fakturace.dart';
 import 'statistiky.dart';
 import 'nastaveni.dart';
 
@@ -16,13 +17,13 @@ class MainScreen extends StatefulWidget {
 class _MainScreenState extends State<MainScreen> {
   int _currentIndex = 0;
 
+  // Nyní máme v hlavní liště jen 4 obrazovky.
+  // Moduly z menu se budou otevírat jako nová okna.
   final List<Widget> _pages = [
     const MainWizardPage(),
     const ServiceProgressPage(),
     const HistoryPage(),
-    const ZakazniciPage(), // <--- PŘIDANÁ STRÁNKA
-    const StatisticsPage(),
-    const SettingsPage(),
+    const MenuPage(), // <--- Naše nové dlaždicové Menu
   ];
 
   @override
@@ -75,7 +76,6 @@ class _MainScreenState extends State<MainScreen> {
         onDestinationSelected: (index) => setState(() => _currentIndex = index),
         backgroundColor: isDark ? const Color(0xFF1A1A1A) : Colors.white,
         indicatorColor: Theme.of(context).colorScheme.primary.withOpacity(0.2),
-        // Na mobilu doporučujeme zapnout posouvání štítků, pokud se tam nevejdou
         labelBehavior: NavigationDestinationLabelBehavior.alwaysShow,
         destinations: const [
           NavigationDestination(
@@ -93,23 +93,199 @@ class _MainScreenState extends State<MainScreen> {
             selectedIcon: Icon(Icons.history_rounded),
             label: 'Historie',
           ),
-          // --- NOVÁ ZÁLOŽKA V MENU ---
+          // --- IKONA PRO NOVÉ MENU ---
           NavigationDestination(
-            icon: Icon(Icons.people_outline_rounded),
-            selectedIcon: Icon(Icons.people_alt_rounded),
-            label: 'Zákazníci',
-          ),
-          NavigationDestination(
-            icon: Icon(Icons.bar_chart_outlined),
-            selectedIcon: Icon(Icons.bar_chart),
-            label: 'Statistiky',
-          ),
-          NavigationDestination(
-            icon: Icon(Icons.settings_outlined),
-            selectedIcon: Icon(Icons.settings),
-            label: 'Nastavení',
+            icon: Icon(Icons.grid_view),
+            selectedIcon: Icon(Icons.grid_view_rounded),
+            label: 'Menu',
           ),
         ],
+      ),
+    );
+  }
+}
+
+// ============================================================================
+// NOVÁ TŘÍDA PRO DLAŽDICOVÉ MENU
+// ============================================================================
+
+class MenuPage extends StatelessWidget {
+  const MenuPage({super.key});
+
+  @override
+  Widget build(BuildContext context) {
+    final isDark = Theme.of(context).brightness == Brightness.dark;
+
+    return SingleChildScrollView(
+      padding: const EdgeInsets.all(20),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          const Padding(
+            padding: EdgeInsets.only(left: 10, top: 10, bottom: 5),
+            child: Text(
+              'Další moduly',
+              style: TextStyle(fontSize: 32, fontWeight: FontWeight.bold),
+            ),
+          ),
+          const Padding(
+            padding: EdgeInsets.only(left: 10, bottom: 20),
+            child: Text(
+              'Správa zákazníků, fakturace a nastavení servisu.',
+              style: TextStyle(color: Colors.grey),
+            ),
+          ),
+
+          GridView.count(
+            crossAxisCount: 2, // Dva sloupce
+            shrinkWrap: true,
+            physics: const NeverScrollableScrollPhysics(),
+            mainAxisSpacing: 15,
+            crossAxisSpacing: 15,
+            childAspectRatio: 1.1, // Aby byly dlaždice trošku širší než vyšší
+            children: [
+              _buildMenuCard(
+                context,
+                'Klienti',
+                Icons.people_alt,
+                Colors.blue,
+                const ZakazniciPage(),
+                isDark,
+              ),
+              _buildMenuCard(
+                context,
+                'Faktury',
+                Icons.receipt_long,
+                Colors.green,
+                const FakturacePage(),
+                isDark,
+              ),
+              _buildMenuCard(
+                context,
+                'Statistiky',
+                Icons.bar_chart,
+                Colors.purple,
+                const StatisticsPage(),
+                isDark,
+              ),
+              _buildMenuCard(
+                context,
+                'Nastavení',
+                Icons.settings,
+                Colors.blueGrey,
+                const SettingsPage(),
+                isDark,
+              ),
+
+              // --- TADY MÁŠ PŘIPRAVENÉ MÍSTO PRO BUDOUCÍ SKLAD ---
+              _buildMenuCard(
+                context,
+                'Sklad dílů',
+                Icons.inventory_2,
+                Colors.orange,
+                null,
+                isDark,
+                isLocked: true,
+              ),
+            ],
+          ),
+        ],
+      ),
+    );
+  }
+
+  // Pomocný widget pro vykreslení jedné dlaždice v menu
+  Widget _buildMenuCard(
+    BuildContext context,
+    String title,
+    IconData icon,
+    Color color,
+    Widget? page,
+    bool isDark, {
+    bool isLocked = false,
+  }) {
+    return InkWell(
+      onTap: isLocked
+          ? () {
+              ScaffoldMessenger.of(context).showSnackBar(
+                const SnackBar(
+                  content: Text('Tento modul připravujeme v další verzi!'),
+                ),
+              );
+            }
+          : () {
+              // Po kliknutí se otevře nová obrazovka s tlačítkem Zpět
+              Navigator.push(
+                context,
+                MaterialPageRoute(
+                  builder: (context) => Scaffold(
+                    backgroundColor: Theme.of(context).colorScheme.surface,
+                    appBar: AppBar(
+                      backgroundColor: isDark
+                          ? const Color(0xFF1A1A1A)
+                          : Colors.white,
+                      elevation: 1,
+                    ),
+                    body: page,
+                  ),
+                ),
+              );
+            },
+      borderRadius: BorderRadius.circular(20),
+      child: Container(
+        decoration: BoxDecoration(
+          color: isDark ? const Color(0xFF1E1E1E) : Colors.white,
+          borderRadius: BorderRadius.circular(20),
+          border: Border.all(
+            color: isLocked
+                ? Colors.grey.withOpacity(0.2)
+                : color.withOpacity(0.3),
+            width: 2,
+          ),
+          boxShadow: [
+            if (!isDark)
+              BoxShadow(
+                color: color.withOpacity(0.1),
+                blurRadius: 10,
+                offset: const Offset(0, 5),
+              ),
+          ],
+        ),
+        child: Column(
+          mainAxisAlignment: MainAxisAlignment.center,
+          children: [
+            Icon(icon, size: 40, color: isLocked ? Colors.grey : color),
+            const SizedBox(height: 15),
+            Text(
+              title,
+              style: TextStyle(
+                fontWeight: FontWeight.bold,
+                fontSize: 16,
+                color: isLocked
+                    ? Colors.grey
+                    : (isDark ? Colors.white : Colors.black87),
+              ),
+            ),
+            if (isLocked) ...[
+              const SizedBox(height: 5),
+              Container(
+                padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 3),
+                decoration: BoxDecoration(
+                  color: Colors.orange.withOpacity(0.1),
+                  borderRadius: BorderRadius.circular(5),
+                ),
+                child: const Text(
+                  'Připravujeme',
+                  style: TextStyle(
+                    fontSize: 10,
+                    color: Colors.orange,
+                    fontWeight: FontWeight.bold,
+                  ),
+                ),
+              ),
+            ],
+          ],
+        ),
       ),
     );
   }

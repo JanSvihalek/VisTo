@@ -7,7 +7,7 @@ import 'package:pdf/widgets.dart' as pw;
 import 'package:printing/printing.dart';
 import 'dart:html' as html;
 import 'package:http/http.dart' as http;
-import 'dart:typed_data'; // <--- TENTO IMPORT CHYBĚL
+import 'dart:typed_data';
 import '../core/constants.dart';
 
 class HistoryPage extends StatefulWidget {
@@ -90,7 +90,6 @@ class _HistoryPageState extends State<HistoryPage> {
             stream: FirebaseFirestore.instance
                 .collection('zakazky')
                 .where('servis_id', isEqualTo: user.uid)
-                .orderBy('cas_prijeti', descending: true)
                 .snapshots(),
             builder: (context, snapshot) {
               if (snapshot.hasError)
@@ -101,6 +100,8 @@ class _HistoryPageState extends State<HistoryPage> {
               final allDocs = snapshot.data!.docs;
               final filteredDocs = allDocs.where((doc) {
                 final data = doc.data() as Map<String, dynamic>;
+                if (data['stav_zakazky'] != 'Dokončeno') return false;
+
                 final cislo =
                     data['cislo_zakazky']?.toString().toLowerCase() ?? '';
                 final spz = data['spz']?.toString().toLowerCase() ?? '';
@@ -109,6 +110,18 @@ class _HistoryPageState extends State<HistoryPage> {
                     spz.contains(_searchQuery) ||
                     vin.contains(_searchQuery);
               }).toList();
+
+              // Řazení lokálně
+              filteredDocs.sort((a, b) {
+                final dataA = a.data() as Map<String, dynamic>;
+                final dataB = b.data() as Map<String, dynamic>;
+                final timeA = dataA['cas_prijeti'] as Timestamp?;
+                final timeB = dataB['cas_prijeti'] as Timestamp?;
+                if (timeA == null && timeB == null) return 0;
+                if (timeA == null) return 1;
+                if (timeB == null) return -1;
+                return timeB.compareTo(timeA);
+              });
 
               if (filteredDocs.isEmpty) {
                 return Center(
@@ -123,7 +136,7 @@ class _HistoryPageState extends State<HistoryPage> {
                       const SizedBox(height: 16),
                       Text(
                         _searchQuery.isEmpty
-                            ? 'Zatím žádné zakázky'
+                            ? 'Zatím žádné zakázky v historii'
                             : 'Nic nenalezeno',
                         style: TextStyle(
                           fontSize: 18,
@@ -141,7 +154,18 @@ class _HistoryPageState extends State<HistoryPage> {
                 itemBuilder: (context, index) {
                   final data =
                       filteredDocs[index].data() as Map<String, dynamic>;
-                  final stav = data['stav_zakazky'] ?? 'Přijato';
+                  final zpusobUkonceni = data['zpusob_ukonceni'] ?? '';
+                  String stavText = 'Dokončeno';
+                  Color stavBarva = Colors.green;
+
+                  if (zpusobUkonceni == 'zruseno') {
+                    stavText = 'Zrušeno';
+                    stavBarva = Colors.red;
+                  } else if (zpusobUkonceni == 'bez_faktury') {
+                    stavText = 'Bez faktury';
+                    stavBarva = Colors.grey;
+                  }
+
                   return Card(
                     color: isDark ? const Color(0xFF1E1E1E) : Colors.white,
                     shape: RoundedRectangleBorder(
@@ -167,17 +191,14 @@ class _HistoryPageState extends State<HistoryPage> {
                               vertical: 2,
                             ),
                             decoration: BoxDecoration(
-                              color: getStatusColor(stav).withOpacity(0.1),
+                              color: stavBarva.withOpacity(0.1),
                               borderRadius: BorderRadius.circular(8),
-                              border: Border.all(
-                                color: getStatusColor(stav),
-                                width: 0.5,
-                              ),
+                              border: Border.all(color: stavBarva, width: 0.5),
                             ),
                             child: Text(
-                              stav,
+                              stavText,
                               style: TextStyle(
-                                color: getStatusColor(stav),
+                                color: stavBarva,
                                 fontSize: 10,
                                 fontWeight: FontWeight.bold,
                               ),
@@ -240,6 +261,23 @@ class _HistoryPageState extends State<HistoryPage> {
         ? (stav['poskozeni'] as List).join(', ')
         : (stav['poskozeni'] ?? 'Neuvedeno').toString();
 
+    final zpusobUkonceni = data['zpusob_ukonceni'] ?? '';
+    final bool maFakturu = zpusobUkonceni == 'faktura';
+
+    double celkovaCenaSDph = 0.0;
+    if (maFakturu) {
+      final praceForCalc = data['provedene_prace'] as List<dynamic>? ?? [];
+      for (var p in praceForCalc) {
+        celkovaCenaSDph += (p['cena_s_dph'] ?? 0.0).toDouble();
+        final dily = p['pouzite_dily'] as List<dynamic>? ?? [];
+        for (var dil in dily) {
+          double pocet = (dil['pocet'] ?? 1.0).toDouble();
+          double cenaSDph = (dil['cena_s_dph'] ?? 0.0).toDouble();
+          celkovaCenaSDph += (pocet * cenaSDph);
+        }
+      }
+    }
+
     showModalBottomSheet(
       context: context,
       isScrollControlled: true,
@@ -247,240 +285,292 @@ class _HistoryPageState extends State<HistoryPage> {
       shape: const RoundedRectangleBorder(
         borderRadius: BorderRadius.vertical(top: Radius.circular(25)),
       ),
-      builder: (context) => Padding(
-        padding: const EdgeInsets.all(30),
-        child: Column(
-          mainAxisSize: MainAxisSize.min,
-          crossAxisAlignment: CrossAxisAlignment.start,
-          children: [
-            Center(
-              child: Container(
-                width: 40,
-                height: 4,
-                decoration: BoxDecoration(
-                  color: Colors.grey[300],
-                  borderRadius: BorderRadius.circular(10),
+      builder: (context) => SingleChildScrollView(
+        child: Padding(
+          padding: EdgeInsets.only(
+            left: 30,
+            right: 30,
+            top: 30,
+            bottom: MediaQuery.of(context).viewInsets.bottom + 30,
+          ),
+          child: Column(
+            mainAxisSize: MainAxisSize.min,
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              Center(
+                child: Container(
+                  width: 40,
+                  height: 4,
+                  decoration: BoxDecoration(
+                    color: Colors.grey[300],
+                    borderRadius: BorderRadius.circular(10),
+                  ),
                 ),
               ),
-            ),
-            const SizedBox(height: 20),
-            Row(
-              mainAxisAlignment: MainAxisAlignment.spaceBetween,
-              children: [
-                Text(
-                  'Zakázka ${data['cislo_zakazky']}',
-                  style: const TextStyle(
-                    fontSize: 24,
-                    fontWeight: FontWeight.bold,
-                  ),
-                ),
-                IconButton(
-                  icon: const Icon(
-                    Icons.picture_as_pdf,
-                    color: Colors.redAccent,
-                    size: 28,
-                  ),
-                  onPressed: () {
-                    Navigator.push(
-                      context,
-                      MaterialPageRoute(
-                        builder: (context) => Scaffold(
-                          appBar: AppBar(title: const Text('Náhled protokolu')),
-                          body: PdfPreview(
-                            build: (format) =>
-                                _exportHistoryToPdf(format, data),
-                            allowSharing: true,
-                            allowPrinting: true,
-                            canChangeOrientation: false,
-                            canChangePageFormat: false,
-                            loadingWidget: const Center(
-                              child: CircularProgressIndicator(),
-                            ),
-                          ),
-                        ),
+              const SizedBox(height: 20),
+              Row(
+                mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                children: [
+                  Expanded(
+                    child: Text(
+                      'Zakázka ${data['cislo_zakazky']}',
+                      style: const TextStyle(
+                        fontSize: 24,
+                        fontWeight: FontWeight.bold,
                       ),
-                    );
-                  },
-                  tooltip: 'Zobrazit PDF',
-                ),
-              ],
-            ),
-            Text(
-              'SPZ: ${data['spz']}',
-              style: const TextStyle(
-                fontSize: 18,
-                color: Colors.blue,
-                fontWeight: FontWeight.w500,
+                    ),
+                  ),
+                  Row(
+                    mainAxisSize: MainAxisSize.min,
+                    children: [
+                      if (maFakturu)
+                        IconButton(
+                          icon: const Icon(
+                            Icons.receipt_long,
+                            color: Colors.green,
+                            size: 28,
+                          ),
+                          onPressed: () {
+                            Navigator.push(
+                              context,
+                              MaterialPageRoute(
+                                builder: (context) => Scaffold(
+                                  appBar: AppBar(
+                                    title: const Text('Náhled faktury'),
+                                  ),
+                                  body: PdfPreview(
+                                    build: (format) => _generateInvoicePdf(
+                                      format,
+                                      data,
+                                      celkovaCenaSDph,
+                                    ),
+                                    allowSharing: true,
+                                    allowPrinting: true,
+                                    canChangeOrientation: false,
+                                    canChangePageFormat: false,
+                                    loadingWidget: const Center(
+                                      child: CircularProgressIndicator(),
+                                    ),
+                                  ),
+                                ),
+                              ),
+                            );
+                          },
+                          tooltip: 'Zobrazit fakturu',
+                        ),
+                      IconButton(
+                        icon: const Icon(
+                          Icons.picture_as_pdf,
+                          color: Colors.redAccent,
+                          size: 28,
+                        ),
+                        onPressed: () {
+                          Navigator.push(
+                            context,
+                            MaterialPageRoute(
+                              builder: (context) => Scaffold(
+                                appBar: AppBar(
+                                  title: const Text('Náhled protokolu'),
+                                ),
+                                body: PdfPreview(
+                                  build: (format) =>
+                                      _exportHistoryToPdf(format, data),
+                                  allowSharing: true,
+                                  allowPrinting: true,
+                                  canChangeOrientation: false,
+                                  canChangePageFormat: false,
+                                  loadingWidget: const Center(
+                                    child: CircularProgressIndicator(),
+                                  ),
+                                ),
+                              ),
+                            ),
+                          );
+                        },
+                        tooltip: 'Protokol o opravě',
+                      ),
+                    ],
+                  ),
+                ],
               ),
-            ),
-            if (data['vin'] != null && data['vin'].toString().isNotEmpty)
               Text(
-                'VIN: ${data['vin']}',
-                style: const TextStyle(fontWeight: FontWeight.bold),
+                'SPZ: ${data['spz']}',
+                style: const TextStyle(
+                  fontSize: 18,
+                  color: Colors.blue,
+                  fontWeight: FontWeight.w500,
+                ),
               ),
-            Text(
-              'Přijato: ${_formatDate(data['cas_prijeti'])}',
-              style: TextStyle(color: Colors.grey[600]),
-            ),
-            const Divider(height: 40),
-            if (zakaznik.isNotEmpty &&
-                (zakaznik['jmeno']?.toString().isNotEmpty == true ||
-                    zakaznik['ico']?.toString().isNotEmpty == true)) ...[
+              if (data['vin'] != null && data['vin'].toString().isNotEmpty)
+                Text(
+                  'VIN: ${data['vin']}',
+                  style: const TextStyle(fontWeight: FontWeight.bold),
+                ),
+              Text(
+                'Přijato: ${_formatDate(data['cas_prijeti'])}',
+                style: TextStyle(color: Colors.grey[600]),
+              ),
+              const Divider(height: 40),
+              if (zakaznik.isNotEmpty &&
+                  (zakaznik['jmeno']?.toString().isNotEmpty == true ||
+                      zakaznik['ico']?.toString().isNotEmpty == true)) ...[
+                const Text(
+                  'Zákazník:',
+                  style: TextStyle(fontWeight: FontWeight.bold, fontSize: 16),
+                ),
+                const SizedBox(height: 15),
+                if (zakaznik['jmeno']?.toString().isNotEmpty == true)
+                  _buildDetailRow(
+                    'Jméno / Firma:',
+                    zakaznik['jmeno'],
+                    Icons.person,
+                    Colors.blueGrey,
+                  ),
+                if (zakaznik['ico']?.toString().isNotEmpty == true)
+                  _buildDetailRow(
+                    'IČO:',
+                    zakaznik['ico'],
+                    Icons.business,
+                    Colors.blueGrey,
+                  ),
+                if (zakaznik['adresa']?.toString().isNotEmpty == true)
+                  _buildDetailRow(
+                    'Adresa:',
+                    zakaznik['adresa'],
+                    Icons.location_on,
+                    Colors.blueGrey,
+                  ),
+                if (zakaznik['telefon']?.toString().isNotEmpty == true)
+                  _buildDetailRow(
+                    'Telefon:',
+                    zakaznik['telefon'],
+                    Icons.phone,
+                    Colors.blueGrey,
+                  ),
+                if (zakaznik['email']?.toString().isNotEmpty == true)
+                  _buildDetailRow(
+                    'E-mail:',
+                    zakaznik['email'],
+                    Icons.email,
+                    Colors.blueGrey,
+                  ),
+                const Divider(height: 40),
+              ],
               const Text(
-                'Zákazník:',
+                'Stav vozidla:',
                 style: TextStyle(fontWeight: FontWeight.bold, fontSize: 16),
               ),
               const SizedBox(height: 15),
-              if (zakaznik['jmeno']?.toString().isNotEmpty == true)
+              if (data['znacka'] != null &&
+                  data['znacka'].toString().isNotEmpty)
                 _buildDetailRow(
-                  'Jméno / Firma:',
-                  zakaznik['jmeno'],
-                  Icons.person,
+                  'Značka:',
+                  data['znacka'],
+                  Icons.directions_car,
                   Colors.blueGrey,
                 ),
-              if (zakaznik['ico']?.toString().isNotEmpty == true)
+              if (data['model'] != null && data['model'].toString().isNotEmpty)
                 _buildDetailRow(
-                  'IČO:',
-                  zakaznik['ico'],
-                  Icons.business,
+                  'Model:',
+                  data['model'],
+                  Icons.directions_car_filled,
                   Colors.blueGrey,
                 ),
-              if (zakaznik['adresa']?.toString().isNotEmpty == true)
+              if (data['rok_vyroby'] != null &&
+                  data['rok_vyroby'].toString().isNotEmpty)
                 _buildDetailRow(
-                  'Adresa:',
-                  zakaznik['adresa'],
-                  Icons.location_on,
+                  'Rok výroby:',
+                  data['rok_vyroby'],
+                  Icons.calendar_today,
                   Colors.blueGrey,
                 ),
-              if (zakaznik['telefon']?.toString().isNotEmpty == true)
+              if (data['motorizace'] != null &&
+                  data['motorizace'].toString().isNotEmpty)
                 _buildDetailRow(
-                  'Telefon:',
-                  zakaznik['telefon'],
-                  Icons.phone,
+                  'Motor:',
+                  data['motorizace'],
+                  Icons.settings,
                   Colors.blueGrey,
                 ),
-              if (zakaznik['email']?.toString().isNotEmpty == true)
+              if (data['palivo_typ'] != null &&
+                  data['palivo_typ'].toString().isNotEmpty)
                 _buildDetailRow(
-                  'E-mail:',
-                  zakaznik['email'],
-                  Icons.email,
+                  'Palivo:',
+                  data['palivo_typ'],
+                  Icons.local_gas_station,
                   Colors.blueGrey,
                 ),
-              const Divider(height: 40),
-            ],
-            const Text(
-              'Stav vozidla:',
-              style: TextStyle(fontWeight: FontWeight.bold, fontSize: 16),
-            ),
-            const SizedBox(height: 15),
-            if (data['znacka'] != null && data['znacka'].toString().isNotEmpty)
+              if (data['prevodovka'] != null &&
+                  data['prevodovka'].toString().isNotEmpty)
+                _buildDetailRow(
+                  'Převodovka:',
+                  data['prevodovka'],
+                  Icons.settings_input_component,
+                  Colors.blueGrey,
+                ),
               _buildDetailRow(
-                'Značka:',
-                data['znacka'],
-                Icons.directions_car,
-                Colors.blueGrey,
+                'Tachometr:',
+                '${stav['tachometr'] ?? '-'} km',
+                Icons.speed,
+                Colors.grey,
               ),
-            if (data['model'] != null && data['model'].toString().isNotEmpty)
-              _buildDetailRow(
-                'Model:',
-                data['model'],
-                Icons.directions_car_filled,
-                Colors.blueGrey,
-              ),
-            if (data['rok_vyroby'] != null &&
-                data['rok_vyroby'].toString().isNotEmpty)
-              _buildDetailRow(
-                'Rok výroby:',
-                data['rok_vyroby'],
-                Icons.calendar_today,
-                Colors.blueGrey,
-              ),
-            if (data['motorizace'] != null &&
-                data['motorizace'].toString().isNotEmpty)
-              _buildDetailRow(
-                'Motor:',
-                data['motorizace'],
-                Icons.settings,
-                Colors.blueGrey,
-              ),
-            if (data['palivo_typ'] != null &&
-                data['palivo_typ'].toString().isNotEmpty)
               _buildDetailRow(
                 'Palivo:',
-                data['palivo_typ'],
+                '${stav['nadrz']?.toInt() ?? '-'} %',
                 Icons.local_gas_station,
                 Colors.blueGrey,
               ),
-            if (data['prevodovka'] != null &&
-                data['prevodovka'].toString().isNotEmpty)
               _buildDetailRow(
-                'Převodovka:',
-                data['prevodovka'],
-                Icons.settings_input_component,
-                Colors.blueGrey,
+                'Poškození:',
+                poskozeniText,
+                Icons.warning_amber_rounded,
+                Colors.orange,
               ),
-            _buildDetailRow(
-              'Tachometr:',
-              '${stav['tachometr'] ?? '-'} km',
-              Icons.speed,
-              Colors.grey,
-            ),
-            _buildDetailRow(
-              'Palivo:',
-              '${stav['nadrz']?.toInt() ?? '-'} %',
-              Icons.local_gas_station,
-              Colors.blueGrey,
-            ),
-            _buildDetailRow(
-              'Poškození:',
-              poskozeniText,
-              Icons.warning_amber_rounded,
-              Colors.orange,
-            ),
-            const SizedBox(height: 20),
-            const Text(
-              'Fotografie z příjmu:',
-              style: TextStyle(fontWeight: FontWeight.bold),
-            ),
-            const SizedBox(height: 10),
-            if (allPhotos.isEmpty)
-              const Text('Žádné fotky.')
-            else
-              SizedBox(
-                height: 150,
-                child: ListView.separated(
-                  scrollDirection: Axis.horizontal,
-                  itemCount: allPhotos.length,
-                  separatorBuilder: (c, i) => const SizedBox(width: 15),
-                  itemBuilder: (c, i) => GestureDetector(
-                    onTap: () =>
-                        html.window.open(allPhotos[i]['url']!, "_blank"),
-                    child: Column(
-                      children: [
-                        ClipRRect(
-                          borderRadius: BorderRadius.circular(10),
-                          child: Image.network(
-                            allPhotos[i]['url']!,
-                            width: 180,
-                            height: 120,
-                            fit: BoxFit.cover,
+              const SizedBox(height: 20),
+              const Text(
+                'Fotografie z příjmu:',
+                style: TextStyle(fontWeight: FontWeight.bold),
+              ),
+              const SizedBox(height: 10),
+              if (allPhotos.isEmpty)
+                const Text('Žádné fotky.')
+              else
+                SizedBox(
+                  height: 150,
+                  child: ListView.separated(
+                    scrollDirection: Axis.horizontal,
+                    itemCount: allPhotos.length,
+                    separatorBuilder: (c, i) => const SizedBox(width: 15),
+                    itemBuilder: (c, i) => GestureDetector(
+                      onTap: () =>
+                          html.window.open(allPhotos[i]['url']!, "_blank"),
+                      child: Column(
+                        children: [
+                          ClipRRect(
+                            borderRadius: BorderRadius.circular(10),
+                            child: Image.network(
+                              allPhotos[i]['url']!,
+                              width: 180,
+                              height: 120,
+                              fit: BoxFit.cover,
+                            ),
                           ),
-                        ),
-                        const SizedBox(height: 4),
-                        Text(
-                          allPhotos[i]['label']!,
-                          style: const TextStyle(
-                            fontSize: 10,
-                            color: Colors.blue,
+                          const SizedBox(height: 4),
+                          Text(
+                            allPhotos[i]['label']!,
+                            style: const TextStyle(
+                              fontSize: 10,
+                              color: Colors.blue,
+                            ),
                           ),
-                        ),
-                      ],
+                        ],
+                      ),
                     ),
                   ),
                 ),
-              ),
-            const SizedBox(height: 40),
-          ],
+              const SizedBox(height: 40),
+            ],
+          ),
         ),
       ),
     );
@@ -903,6 +993,16 @@ class _HistoryPageState extends State<HistoryPage> {
                 final pocetFotek =
                     (prace['fotografie_urls'] as List?)?.length ?? 0;
                 final dily = prace['pouzite_dily'] as List<dynamic>? ?? [];
+
+                double celkemPracePdf = (prace['cena_s_dph'] ?? 0.0).toDouble();
+                double celkemDilyPdf = 0.0;
+                for (var dil in dily) {
+                  double pocet = (dil['pocet'] ?? 1.0).toDouble();
+                  double cenaKs = (dil['cena_s_dph'] ?? 0.0).toDouble();
+                  celkemDilyPdf += (pocet * cenaKs);
+                }
+                double celkemUkonPdf = celkemPracePdf + celkemDilyPdf;
+
                 return pw.Container(
                   margin: const pw.EdgeInsets.only(bottom: 15),
                   padding: const pw.EdgeInsets.all(10),
@@ -918,7 +1018,7 @@ class _HistoryPageState extends State<HistoryPage> {
                         mainAxisAlignment: pw.MainAxisAlignment.spaceBetween,
                         children: [
                           pw.Text(
-                            '${prace['nazev']} (Cena úkonu: ${prace['cena_s_dph']} Kč s DPH)',
+                            '${prace['nazev']} (Celkem: ${celkemUkonPdf.toStringAsFixed(2)} Kč)',
                             style: pw.TextStyle(font: fontBold, fontSize: 14),
                           ),
                           pw.Text(
@@ -963,7 +1063,7 @@ class _HistoryPageState extends State<HistoryPage> {
                                   left: 10,
                                 ),
                                 child: pw.Text(
-                                  '• ${dil['nazev']} (${dil['cislo']}) - ${dil['pocet']} ks - ${dil['cena_s_dph']} Kč s DPH',
+                                  '• ${dil['nazev']} (${dil['cislo']}) - ${dil['pocet']} ks - ${dil['cena_s_dph']} Kč',
                                   style: pw.TextStyle(
                                     font: fontRegular,
                                     fontSize: 10,
@@ -1040,6 +1140,520 @@ class _HistoryPageState extends State<HistoryPage> {
         },
       ),
     );
+    return pdf.save();
+  }
+
+  Future<Uint8List> _generateInvoicePdf(
+    PdfPageFormat format,
+    Map<String, dynamic> data,
+    double celkovaCastka,
+  ) async {
+    final user = FirebaseAuth.instance.currentUser;
+
+    String dodavatelNazev = 'Neznámý servis';
+    String dodavatelIco = '';
+    String dodavatelDic = '';
+    String dodavatelAdresa = '';
+    String dodavatelMesto = '';
+    String dodavatelTelefon = '';
+    String dodavatelEmail = '';
+    String dodavatelBanka = '';
+    String dodavatelRegistrace = '';
+    bool jePlatceDph = false;
+
+    if (user != null) {
+      final nastaveniDoc = await FirebaseFirestore.instance
+          .collection('nastaveni_servisu')
+          .doc(user.uid)
+          .get();
+      if (nastaveniDoc.exists) {
+        final nd = nastaveniDoc.data()!;
+        dodavatelNazev = nd['nazev_servisu'] ?? dodavatelNazev;
+        dodavatelIco = nd['ico_servisu'] ?? '';
+        dodavatelDic = nd['dic_servisu'] ?? '';
+        dodavatelAdresa = nd['adresa_servisu'] ?? '';
+        dodavatelMesto = nd['mesto_servisu'] ?? '';
+        dodavatelTelefon = nd['telefon_servisu'] ?? '';
+        dodavatelEmail = nd['email_servisu'] ?? '';
+        dodavatelBanka = nd['banka_servisu'] ?? '';
+        dodavatelRegistrace = nd['registrace_servisu'] ?? '';
+        jePlatceDph = nd['platce_dph'] ?? false;
+      }
+    }
+
+    final zakaznik = data['zakaznik'] as Map<String, dynamic>? ?? {};
+    final provedenePrace = data['provedene_prace'] as List<dynamic>? ?? [];
+
+    final cisloFaktury =
+        'FAK-${data['cislo_zakazky']?.toString().replaceAll(RegExp(r'^[A-Z]+-'), '') ?? DateTime.now().millisecondsSinceEpoch}';
+
+    final pdf = pw.Document();
+    final fontRegular = await PdfGoogleFonts.robotoRegular();
+    final fontBold = await PdfGoogleFonts.robotoBold();
+
+    final formaUhrady = data['forma_uhrady']?.toString() ?? 'Převodem';
+    final now = DateTime.now();
+    final splatnost = (formaUhrady == 'Hotově' || formaUhrady == 'Kartou')
+        ? now
+        : now.add(const Duration(days: 14));
+
+    final String nadpisDokladu = jePlatceDph
+        ? 'FAKTURA - DAŇOVÝ DOKLAD'
+        : 'FAKTURA';
+    final String dodavatelOznSleva = jePlatceDph ? '' : 'Neplátce DPH';
+
+    final tableHeaders = jePlatceDph
+        ? ['Popis položky', 'Množství', 'Cena/mj. bez DPH', 'Celkem s DPH']
+        : ['Popis položky', 'Množství', 'Cena/mj.', 'Celkem'];
+
+    final List<List<String>> tableData = [];
+
+    double celkemBezDph = 0;
+    double celkemDph = 0;
+
+    for (var prace in provedenePrace) {
+      double pCenaSDph = (prace['cena_s_dph'] ?? 0.0).toDouble();
+      double pCenaBezDph = (prace['cena_bez_dph'] ?? 0.0).toDouble();
+
+      celkemBezDph += pCenaBezDph;
+      celkemDph += (pCenaSDph - pCenaBezDph);
+
+      tableData.add([
+        'Práce: ${prace['nazev']}',
+        '1 ks',
+        jePlatceDph
+            ? '${pCenaBezDph.toStringAsFixed(2)} Kč'
+            : '${pCenaSDph.toStringAsFixed(2)} Kč',
+        '${pCenaSDph.toStringAsFixed(2)} Kč',
+      ]);
+
+      final dily = prace['pouzite_dily'] as List<dynamic>? ?? [];
+      for (var dil in dily) {
+        double dPocet = (dil['pocet'] ?? 1.0).toDouble();
+        double dCenaSDph = (dil['cena_s_dph'] ?? 0.0).toDouble();
+        double dCenaBezDph = (dil['cena_bez_dph'] ?? 0.0).toDouble();
+        double dRadkaCelkemSDph = dPocet * dCenaSDph;
+        double dRadkaCelkemBezDph = dPocet * dCenaBezDph;
+
+        celkemBezDph += dRadkaCelkemBezDph;
+        celkemDph += (dRadkaCelkemSDph - dRadkaCelkemBezDph);
+
+        tableData.add([
+          'Materiál: ${dil['nazev']} ${dil['cislo'].toString().isNotEmpty ? '(${dil['cislo']})' : ''}',
+          '$dPocet ks',
+          jePlatceDph
+              ? '${dCenaBezDph.toStringAsFixed(2)} Kč'
+              : '${dCenaSDph.toStringAsFixed(2)} Kč',
+          '${dRadkaCelkemSDph.toStringAsFixed(2)} Kč',
+        ]);
+      }
+    }
+
+    pdf.addPage(
+      pw.MultiPage(
+        pageFormat: PdfPageFormat.a4,
+        margin: const pw.EdgeInsets.all(40),
+        build: (pw.Context context) {
+          return [
+            pw.Row(
+              mainAxisAlignment: pw.MainAxisAlignment.spaceBetween,
+              crossAxisAlignment: pw.CrossAxisAlignment.start,
+              children: [
+                pw.Text(
+                  nadpisDokladu,
+                  style: pw.TextStyle(
+                    font: fontBold,
+                    fontSize: 24,
+                    color: PdfColors.blue800,
+                  ),
+                ),
+                pw.Text(
+                  'Číslo: $cisloFaktury',
+                  style: pw.TextStyle(font: fontBold, fontSize: 16),
+                ),
+              ],
+            ),
+            pw.SizedBox(height: 30),
+
+            pw.Row(
+              crossAxisAlignment: pw.CrossAxisAlignment.start,
+              children: [
+                pw.Expanded(
+                  child: pw.Container(
+                    padding: const pw.EdgeInsets.all(10),
+                    decoration: pw.BoxDecoration(
+                      border: pw.Border.all(color: PdfColors.grey300),
+                      borderRadius: pw.BorderRadius.circular(5),
+                    ),
+                    child: pw.Column(
+                      crossAxisAlignment: pw.CrossAxisAlignment.start,
+                      children: [
+                        pw.Row(
+                          mainAxisAlignment: pw.MainAxisAlignment.spaceBetween,
+                          children: [
+                            pw.Text(
+                              'DODAVATEL:',
+                              style: pw.TextStyle(
+                                font: fontBold,
+                                fontSize: 10,
+                                color: PdfColors.grey600,
+                              ),
+                            ),
+                            if (!jePlatceDph)
+                              pw.Text(
+                                dodavatelOznSleva,
+                                style: pw.TextStyle(
+                                  font: fontBold,
+                                  fontSize: 10,
+                                  color: PdfColors.blue800,
+                                ),
+                              ),
+                          ],
+                        ),
+                        pw.SizedBox(height: 5),
+                        pw.Text(
+                          dodavatelNazev,
+                          style: pw.TextStyle(font: fontBold, fontSize: 14),
+                        ),
+                        pw.Text(
+                          dodavatelAdresa,
+                          style: pw.TextStyle(font: fontRegular, fontSize: 11),
+                        ),
+                        pw.Text(
+                          dodavatelMesto,
+                          style: pw.TextStyle(font: fontRegular, fontSize: 11),
+                        ),
+                        pw.SizedBox(height: 5),
+                        pw.Text(
+                          'IČO: $dodavatelIco',
+                          style: pw.TextStyle(font: fontRegular, fontSize: 11),
+                        ),
+                        if (jePlatceDph && dodavatelDic.isNotEmpty)
+                          pw.Text(
+                            'DIČ: $dodavatelDic',
+                            style: pw.TextStyle(
+                              font: fontRegular,
+                              fontSize: 11,
+                            ),
+                          ),
+                        pw.SizedBox(height: 5),
+                        pw.Text(
+                          'Tel: $dodavatelTelefon',
+                          style: pw.TextStyle(font: fontRegular, fontSize: 11),
+                        ),
+                        pw.Text(
+                          'E-mail: $dodavatelEmail',
+                          style: pw.TextStyle(font: fontRegular, fontSize: 11),
+                        ),
+                      ],
+                    ),
+                  ),
+                ),
+                pw.SizedBox(width: 20),
+                pw.Expanded(
+                  child: pw.Container(
+                    padding: const pw.EdgeInsets.all(10),
+                    decoration: pw.BoxDecoration(
+                      border: pw.Border.all(color: PdfColors.grey300),
+                      borderRadius: pw.BorderRadius.circular(5),
+                    ),
+                    child: pw.Column(
+                      crossAxisAlignment: pw.CrossAxisAlignment.start,
+                      children: [
+                        pw.Text(
+                          'ODBĚRATEL:',
+                          style: pw.TextStyle(
+                            font: fontBold,
+                            fontSize: 10,
+                            color: PdfColors.grey600,
+                          ),
+                        ),
+                        pw.SizedBox(height: 5),
+                        pw.Text(
+                          zakaznik['jmeno']?.toString() ?? 'Neznámý zákazník',
+                          style: pw.TextStyle(font: fontBold, fontSize: 14),
+                        ),
+                        pw.Text(
+                          zakaznik['adresa']?.toString() ?? '',
+                          style: pw.TextStyle(font: fontRegular, fontSize: 11),
+                        ),
+                        pw.SizedBox(height: 5),
+                        if (zakaznik['ico'] != null &&
+                            zakaznik['ico'].toString().isNotEmpty)
+                          pw.Text(
+                            'IČO: ${zakaznik['ico']}',
+                            style: pw.TextStyle(
+                              font: fontRegular,
+                              fontSize: 11,
+                            ),
+                          ),
+                        pw.SizedBox(height: 5),
+                        pw.Text(
+                          'Tel: ${zakaznik['telefon'] ?? ''}',
+                          style: pw.TextStyle(font: fontRegular, fontSize: 11),
+                        ),
+                        pw.Text(
+                          'E-mail: ${zakaznik['email'] ?? ''}',
+                          style: pw.TextStyle(font: fontRegular, fontSize: 11),
+                        ),
+                      ],
+                    ),
+                  ),
+                ),
+              ],
+            ),
+            pw.SizedBox(height: 20),
+
+            pw.Container(
+              padding: const pw.EdgeInsets.all(10),
+              decoration: pw.BoxDecoration(
+                color: PdfColors.grey100,
+                borderRadius: pw.BorderRadius.circular(5),
+              ),
+              child: pw.Row(
+                mainAxisAlignment: pw.MainAxisAlignment.spaceBetween,
+                children: [
+                  pw.Column(
+                    crossAxisAlignment: pw.CrossAxisAlignment.start,
+                    children: [
+                      pw.Text(
+                        'Bankovní účet:',
+                        style: pw.TextStyle(
+                          font: fontRegular,
+                          fontSize: 10,
+                          color: PdfColors.grey600,
+                        ),
+                      ),
+                      pw.Text(
+                        dodavatelBanka.isNotEmpty
+                            ? dodavatelBanka
+                            : 'Není vyplněn',
+                        style: pw.TextStyle(font: fontBold, fontSize: 11),
+                      ),
+                      pw.SizedBox(height: 5),
+                      pw.Text(
+                        'Variabilní symbol:',
+                        style: pw.TextStyle(
+                          font: fontRegular,
+                          fontSize: 10,
+                          color: PdfColors.grey600,
+                        ),
+                      ),
+                      pw.Text(
+                        cisloFaktury.replaceAll(RegExp(r'[^0-9]'), ''),
+                        style: pw.TextStyle(font: fontBold, fontSize: 11),
+                      ),
+                    ],
+                  ),
+                  pw.Column(
+                    crossAxisAlignment: pw.CrossAxisAlignment.start,
+                    children: [
+                      pw.Text(
+                        'Vztahuje se k zakázce:',
+                        style: pw.TextStyle(
+                          font: fontRegular,
+                          fontSize: 10,
+                          color: PdfColors.grey600,
+                        ),
+                      ),
+                      pw.Text(
+                        '${data['cislo_zakazky']} (SPZ: ${data['spz']})',
+                        style: pw.TextStyle(font: fontBold, fontSize: 11),
+                      ),
+                      pw.SizedBox(height: 5),
+                      pw.Text(
+                        jePlatceDph
+                            ? 'Datum vystavení / DUZP:'
+                            : 'Datum vystavení:',
+                        style: pw.TextStyle(
+                          font: fontRegular,
+                          fontSize: 10,
+                          color: PdfColors.grey600,
+                        ),
+                      ),
+                      pw.Text(
+                        DateFormat('dd.MM.yyyy').format(now),
+                        style: pw.TextStyle(font: fontBold, fontSize: 11),
+                      ),
+                    ],
+                  ),
+                  pw.Column(
+                    crossAxisAlignment: pw.CrossAxisAlignment.start,
+                    children: [
+                      pw.Text(
+                        'Datum splatnosti:',
+                        style: pw.TextStyle(
+                          font: fontRegular,
+                          fontSize: 10,
+                          color: PdfColors.red,
+                        ),
+                      ),
+                      pw.Text(
+                        DateFormat('dd.MM.yyyy').format(splatnost),
+                        style: pw.TextStyle(
+                          font: fontBold,
+                          fontSize: 13,
+                          color: PdfColors.red,
+                        ),
+                      ),
+                      pw.SizedBox(height: 5),
+                      pw.Text(
+                        'Forma úhrady:',
+                        style: pw.TextStyle(
+                          font: fontRegular,
+                          fontSize: 10,
+                          color: PdfColors.grey600,
+                        ),
+                      ),
+                      pw.Text(
+                        formaUhrady,
+                        style: pw.TextStyle(font: fontBold, fontSize: 11),
+                      ),
+                    ],
+                  ),
+                ],
+              ),
+            ),
+            pw.SizedBox(height: 30),
+
+            pw.TableHelper.fromTextArray(
+              headers: tableHeaders,
+              data: tableData,
+              headerStyle: pw.TextStyle(
+                font: fontBold,
+                fontSize: 11,
+                color: PdfColors.white,
+              ),
+              headerDecoration: const pw.BoxDecoration(
+                color: PdfColors.blue800,
+              ),
+              cellStyle: pw.TextStyle(font: fontRegular, fontSize: 10),
+              cellAlignments: {
+                0: pw.Alignment.centerLeft,
+                1: pw.Alignment.centerRight,
+                2: pw.Alignment.centerRight,
+                3: pw.Alignment.centerRight,
+              },
+              border: pw.TableBorder.all(color: PdfColors.grey300, width: 0.5),
+            ),
+            pw.SizedBox(height: 30),
+
+            pw.Row(
+              mainAxisAlignment: pw.MainAxisAlignment.end,
+              children: [
+                pw.Container(
+                  width: 250,
+                  child: pw.Column(
+                    children: [
+                      if (jePlatceDph) ...[
+                        pw.Row(
+                          mainAxisAlignment: pw.MainAxisAlignment.spaceBetween,
+                          children: [
+                            pw.Text(
+                              'Celkem bez DPH:',
+                              style: pw.TextStyle(
+                                font: fontRegular,
+                                fontSize: 11,
+                              ),
+                            ),
+                            pw.Text(
+                              '${celkemBezDph.toStringAsFixed(2)} Kč',
+                              style: pw.TextStyle(
+                                font: fontRegular,
+                                fontSize: 11,
+                              ),
+                            ),
+                          ],
+                        ),
+                        pw.Divider(color: PdfColors.grey300),
+                        pw.Row(
+                          mainAxisAlignment: pw.MainAxisAlignment.spaceBetween,
+                          children: [
+                            pw.Text(
+                              'DPH (21%):',
+                              style: pw.TextStyle(
+                                font: fontRegular,
+                                fontSize: 11,
+                              ),
+                            ),
+                            pw.Text(
+                              '${celkemDph.toStringAsFixed(2)} Kč',
+                              style: pw.TextStyle(
+                                font: fontRegular,
+                                fontSize: 11,
+                              ),
+                            ),
+                          ],
+                        ),
+                      ],
+                      pw.Divider(color: PdfColors.black, thickness: 1.5),
+                      pw.SizedBox(height: 5),
+                      pw.Row(
+                        mainAxisAlignment: pw.MainAxisAlignment.spaceBetween,
+                        children: [
+                          pw.Text(
+                            'CELKEM K ÚHRADĚ:',
+                            style: pw.TextStyle(font: fontBold, fontSize: 14),
+                          ),
+                          pw.Text(
+                            '${celkovaCastka.toStringAsFixed(2)} Kč',
+                            style: pw.TextStyle(
+                              font: fontBold,
+                              fontSize: 16,
+                              color: PdfColors.blue800,
+                            ),
+                          ),
+                        ],
+                      ),
+                    ],
+                  ),
+                ),
+              ],
+            ),
+
+            pw.Spacer(),
+
+            pw.Divider(color: PdfColors.grey300),
+            pw.SizedBox(height: 10),
+            pw.Center(
+              child: pw.Text(
+                'Děkujeme Vám za využití našich služeb.',
+                style: pw.TextStyle(
+                  font: fontRegular,
+                  fontSize: 10,
+                  color: PdfColors.grey600,
+                ),
+              ),
+            ),
+            if (dodavatelRegistrace.isNotEmpty) ...[
+              pw.SizedBox(height: 5),
+              pw.Center(
+                child: pw.Text(
+                  dodavatelRegistrace,
+                  style: pw.TextStyle(
+                    font: fontRegular,
+                    fontSize: 8,
+                    color: PdfColors.grey500,
+                  ),
+                ),
+              ),
+            ],
+            pw.SizedBox(height: 5),
+            pw.Center(
+              child: pw.Text(
+                'Vygenerováno systémem VisTo.',
+                style: pw.TextStyle(
+                  font: fontRegular,
+                  fontSize: 8,
+                  color: PdfColors.grey400,
+                ),
+              ),
+            ),
+          ];
+        },
+      ),
+    );
+
     return pdf.save();
   }
 }

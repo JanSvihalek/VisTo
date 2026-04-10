@@ -89,7 +89,6 @@ class _ZakazniciPageState extends State<ZakazniciPage> {
         ),
         Expanded(
           child: StreamBuilder<QuerySnapshot>(
-            // ODSTRANĚNO .orderBy('jmeno'), řadíme níže v aplikaci, aby Firebase nevyžadoval Index
             stream: FirebaseFirestore.instance
                 .collection('zakaznici')
                 .where('servis_id', isEqualTo: user.uid)
@@ -100,7 +99,6 @@ class _ZakazniciPageState extends State<ZakazniciPage> {
               if (!snapshot.hasData)
                 return const Center(child: CircularProgressIndicator());
 
-              // Filtrování podle vyhledávání
               final docs = snapshot.data!.docs.where((doc) {
                 final data = doc.data() as Map<String, dynamic>;
                 final jmeno = data['jmeno']?.toString().toLowerCase() ?? '';
@@ -111,7 +109,7 @@ class _ZakazniciPageState extends State<ZakazniciPage> {
                     ico.contains(_searchQuery);
               }).toList();
 
-              // Abecední seřazení vyfiltrovaných dat přímo v aplikaci
+              // Řazení lokálně
               docs.sort((a, b) {
                 final dataA = a.data() as Map<String, dynamic>;
                 final dataB = b.data() as Map<String, dynamic>;
@@ -192,10 +190,6 @@ class _ZakazniciPageState extends State<ZakazniciPage> {
   }
 }
 
-// ============================================================================
-// DETAIL ZÁKAZNÍKA (KARTA)
-// ============================================================================
-
 class ZakaznikDetailScreen extends StatelessWidget {
   final Map<String, dynamic> zakaznikData;
 
@@ -228,7 +222,6 @@ class ZakaznikDetailScreen extends StatelessWidget {
         child: Column(
           crossAxisAlignment: CrossAxisAlignment.start,
           children: [
-            // --- 1. OSOBNÍ ÚDAJE ---
             Card(
               color: isDark ? const Color(0xFF1A1A1A) : Colors.white,
               shape: RoundedRectangleBorder(
@@ -290,7 +283,6 @@ class ZakaznikDetailScreen extends StatelessWidget {
             ),
             const SizedBox(height: 25),
 
-            // --- 2. VOZIDLA ZÁKAZNÍKA ---
             const Text(
               'Vozidla zákazníka',
               style: TextStyle(fontSize: 20, fontWeight: FontWeight.bold),
@@ -341,18 +333,17 @@ class ZakaznikDetailScreen extends StatelessWidget {
             ),
             const SizedBox(height: 25),
 
-            // --- 3. HISTORIE ZAKÁZEK ---
             const Text(
               'Historie servisů',
               style: TextStyle(fontSize: 20, fontWeight: FontWeight.bold),
             ),
             const SizedBox(height: 10),
             StreamBuilder<QuerySnapshot>(
+              // Odebráno .orderBy
               stream: FirebaseFirestore.instance
                   .collection('zakazky')
                   .where('servis_id', isEqualTo: servisId)
                   .where('zakaznik.id_zakaznika', isEqualTo: zakaznikId)
-                  .orderBy('cas_prijeti', descending: true)
                   .snapshots(),
               builder: (context, snapshot) {
                 if (snapshot.connectionState == ConnectionState.waiting)
@@ -363,12 +354,23 @@ class ZakaznikDetailScreen extends StatelessWidget {
                     style: TextStyle(color: Colors.grey),
                   );
 
+                final docs = snapshot.data!.docs.toList();
+                docs.sort((a, b) {
+                  final dataA = a.data() as Map<String, dynamic>;
+                  final dataB = b.data() as Map<String, dynamic>;
+                  final timeA = dataA['cas_prijeti'] as Timestamp?;
+                  final timeB = dataB['cas_prijeti'] as Timestamp?;
+                  if (timeA == null && timeB == null) return 0;
+                  if (timeA == null) return 1;
+                  if (timeB == null) return -1;
+                  return timeB.compareTo(timeA);
+                });
+
                 return Column(
-                  children: snapshot.data!.docs.map((doc) {
+                  children: docs.map((doc) {
                     final zakazka = doc.data() as Map<String, dynamic>;
                     final stav = zakazka['stav_zakazky'] ?? 'Přijato';
 
-                    // Výpočet celkové útraty za danou zakázku
                     double celkovaCenaSDph = 0.0;
                     final prace =
                         zakazka['provedene_prace'] as List<dynamic>? ?? [];
