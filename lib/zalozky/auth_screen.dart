@@ -107,7 +107,32 @@ class _AuthScreenState extends State<AuthScreen> {
       return;
     }
 
-    // 2. Kontrola, zda se hesla shodují
+    // 2. Kontrola minimálních požadavků na heslo
+    final heslo = _passwordController.text;
+    if (heslo.length < 6) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(
+          content: Text('Heslo musí mít alespoň 6 znaků.'),
+          backgroundColor: Colors.orange,
+        ),
+      );
+      return;
+    }
+
+    // Regex pro kontrolu: musí obsahovat alespoň jedno písmeno a jednu číslici
+    if (!RegExp(r'(?=.*[a-zA-Z])(?=.*\d)').hasMatch(heslo)) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(
+          content: Text(
+            'Heslo musí obsahovat alespoň jedno písmeno a jednu číslici.',
+          ),
+          backgroundColor: Colors.orange,
+        ),
+      );
+      return;
+    }
+
+    // 3. Kontrola, zda se hesla shodují
     if (_passwordController.text != _confirmPasswordController.text) {
       ScaffoldMessenger.of(context).showSnackBar(
         const SnackBar(
@@ -126,7 +151,7 @@ class _AuthScreenState extends State<AuthScreen> {
     setState(() => _registerStep = 1);
   }
 
-  // --- NOVÉ: Obnova zapomenutého hesla ---
+  // --- Obnova zapomenutého hesla ---
   Future<void> _resetPassword() async {
     final email = _emailController.text.trim();
     if (email.isEmpty) {
@@ -250,7 +275,6 @@ class _AuthScreenState extends State<AuthScreen> {
                     isPassword: true,
                   ),
 
-                  // NOVÉ: Tlačítko pro zapomenuté heslo
                   Align(
                     alignment: Alignment.centerRight,
                     child: TextButton(
@@ -340,9 +364,11 @@ class _AuthScreenState extends State<AuthScreen> {
                     isDark: isDark,
                   ),
                   const SizedBox(height: 15),
+
+                  // Úprava popisku u hesla pro lepší uživatelskou srozumitelnost
                   _buildAuthField(
                     controller: _passwordController,
-                    labelText: 'Heslo',
+                    labelText: 'Heslo (min. 6 znaků, písmeno a číslo)',
                     icon: Icons.lock,
                     isDark: isDark,
                     isPassword: true,
