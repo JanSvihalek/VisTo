@@ -3,6 +3,7 @@ import '../core/constants.dart';
 import 'prijem_vozidla.dart';
 import 'prubeh.dart';
 import 'historie.dart';
+import 'zakaznici.dart'; // <--- PŘIDANÝ IMPORT
 import 'statistiky.dart';
 import 'nastaveni.dart';
 
@@ -19,6 +20,7 @@ class _MainScreenState extends State<MainScreen> {
     const MainWizardPage(),
     const ServiceProgressPage(),
     const HistoryPage(),
+    const ZakazniciPage(), // <--- PŘIDANÁ STRÁNKA
     const StatisticsPage(),
     const SettingsPage(),
   ];
@@ -73,6 +75,8 @@ class _MainScreenState extends State<MainScreen> {
         onDestinationSelected: (index) => setState(() => _currentIndex = index),
         backgroundColor: isDark ? const Color(0xFF1A1A1A) : Colors.white,
         indicatorColor: Theme.of(context).colorScheme.primary.withOpacity(0.2),
+        // Na mobilu doporučujeme zapnout posouvání štítků, pokud se tam nevejdou
+        labelBehavior: NavigationDestinationLabelBehavior.alwaysShow,
         destinations: const [
           NavigationDestination(
             icon: Icon(Icons.add_circle_outline_rounded),
@@ -88,6 +92,12 @@ class _MainScreenState extends State<MainScreen> {
             icon: Icon(Icons.history_rounded),
             selectedIcon: Icon(Icons.history_rounded),
             label: 'Historie',
+          ),
+          // --- NOVÁ ZÁLOŽKA V MENU ---
+          NavigationDestination(
+            icon: Icon(Icons.people_outline_rounded),
+            selectedIcon: Icon(Icons.people_alt_rounded),
+            label: 'Zákazníci',
           ),
           NavigationDestination(
             icon: Icon(Icons.bar_chart_outlined),

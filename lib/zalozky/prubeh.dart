@@ -11,7 +11,7 @@ import 'package:printing/printing.dart';
 import 'dart:html' as html;
 import 'dart:io';
 import 'package:http/http.dart' as http;
-import 'dart:typed_data'; // <--- TENTO IMPORT CHYBĚL I ZDE
+import 'dart:typed_data';
 import '../core/constants.dart';
 
 class ServiceProgressPage extends StatefulWidget {
@@ -233,12 +233,12 @@ class ActiveJobScreen extends StatelessWidget {
   }
 
   void _openAddWorkDialog(BuildContext context) {
-    showModalBottomSheet(
-      context: context,
-      isScrollControlled: true,
-      backgroundColor: Colors.transparent,
-      builder: (context) =>
-          _AddWorkSheet(documentId: documentId, zakazkaId: zakazkaId),
+    Navigator.push(
+      context,
+      MaterialPageRoute(
+        builder: (context) =>
+            AddWorkScreen(documentId: documentId, zakazkaId: zakazkaId),
+      ),
     );
   }
 
@@ -742,6 +742,17 @@ class ActiveJobScreen extends StatelessWidget {
                 final pocetFotek =
                     (prace['fotografie_urls'] as List?)?.length ?? 0;
                 final dily = prace['pouzite_dily'] as List<dynamic>? ?? [];
+
+                // Výpočet celkové ceny úkonu pro PDF
+                double celkemPracePdf = (prace['cena_s_dph'] ?? 0.0).toDouble();
+                double celkemDilyPdf = 0.0;
+                for (var dil in dily) {
+                  double pocet = (dil['pocet'] ?? 1.0).toDouble();
+                  double cenaKs = (dil['cena_s_dph'] ?? 0.0).toDouble();
+                  celkemDilyPdf += (pocet * cenaKs);
+                }
+                double celkemUkonPdf = celkemPracePdf + celkemDilyPdf;
+
                 return pw.Container(
                   margin: const pw.EdgeInsets.only(bottom: 15),
                   padding: const pw.EdgeInsets.all(10),
@@ -757,7 +768,7 @@ class ActiveJobScreen extends StatelessWidget {
                         mainAxisAlignment: pw.MainAxisAlignment.spaceBetween,
                         children: [
                           pw.Text(
-                            '${prace['nazev']} (Cena úkonu: ${prace['cena_s_dph']} Kč s DPH)',
+                            '${prace['nazev']} (Celkem: ${celkemUkonPdf.toStringAsFixed(2)} Kč s DPH)',
                             style: pw.TextStyle(font: fontBold, fontSize: 14),
                           ),
                           pw.Text(
@@ -1056,6 +1067,19 @@ class ActiveJobScreen extends StatelessWidget {
                               prace['fotografie_urls'] as List<dynamic>? ?? [];
                           final dily =
                               prace['pouzite_dily'] as List<dynamic>? ?? [];
+
+                          // Výpočet celkové ceny úkonu
+                          double celkemPrace = (prace['cena_s_dph'] ?? 0.0)
+                              .toDouble();
+                          double celkemDily = 0.0;
+                          for (var dil in dily) {
+                            double pocet = (dil['pocet'] ?? 1.0).toDouble();
+                            double cenaKs = (dil['cena_s_dph'] ?? 0.0)
+                                .toDouble();
+                            celkemDily += (pocet * cenaKs);
+                          }
+                          double celkemUkon = celkemPrace + celkemDily;
+
                           return Card(
                             margin: const EdgeInsets.only(bottom: 15),
                             color: isDark
@@ -1078,7 +1102,7 @@ class ActiveJobScreen extends StatelessWidget {
                                     children: [
                                       Expanded(
                                         child: Text(
-                                          '${prace['nazev']} (${prace['cena_s_dph']} Kč s DPH)',
+                                          '${prace['nazev']} (Celkem: ${celkemUkon.toStringAsFixed(2)} Kč s DPH)',
                                           style: const TextStyle(
                                             fontSize: 18,
                                             fontWeight: FontWeight.bold,
@@ -1231,25 +1255,39 @@ class ActiveJobScreen extends StatelessWidget {
   }
 }
 
-class _AddWorkSheet extends StatefulWidget {
+// ============================================================================
+// PLNOHODNOTNÁ OBRAZOVKA PRO PŘIDÁVÁNÍ POLOŽEK
+// ============================================================================
+
+class AddWorkScreen extends StatefulWidget {
   final String documentId;
   final String zakazkaId;
-  const _AddWorkSheet({required this.documentId, required this.zakazkaId});
+
+  const AddWorkScreen({
+    super.key,
+    required this.documentId,
+    required this.zakazkaId,
+  });
+
   @override
-  State<_AddWorkSheet> createState() => _AddWorkSheetState();
+  State<AddWorkScreen> createState() => _AddWorkScreenState();
 }
 
-class _AddWorkSheetState extends State<_AddWorkSheet> {
+class _AddWorkScreenState extends State<AddWorkScreen> {
   final _nazevController = TextEditingController();
   final _popisController = TextEditingController();
   final _delkaController = TextEditingController();
   final _praceCenaBezDphController = TextEditingController();
   final _praceCenaSDphController = TextEditingController();
+
   final List<DilInput> _dilyInputs = [];
   final List<XFile> _workImages = [];
   final ImagePicker _picker = ImagePicker();
+
   bool _isSaving = false;
   double _hodinovaSazba = 0.0;
+
+  double _celkovaCenaSDph = 0.0;
 
   @override
   void initState() {
@@ -1272,11 +1310,49 @@ class _AddWorkSheetState extends State<_AddWorkSheet> {
     }
   }
 
-  void _vypocitejCenuPrace(String hodiny) {
+  void _prepocitatCelkovouCenu() {
+    double celkemPrace =
+        double.tryParse(_praceCenaSDphController.text.replaceAll(',', '.')) ??
+        0.0;
+    double celkemDily = 0.0;
+
+    for (var dil in _dilyInputs) {
+      double pocet =
+          double.tryParse(dil.pocet.text.replaceAll(',', '.')) ?? 0.0;
+      double cenaKs =
+          double.tryParse(dil.cenaSDph.text.replaceAll(',', '.')) ?? 0.0;
+      celkemDily += (pocet * cenaKs);
+    }
+
+    setState(() {
+      _celkovaCenaSDph = celkemPrace + celkemDily;
+    });
+  }
+
+  void _vypocitejCenuPraceZ_Hodin(String hodiny) {
     double pocetHodin = double.tryParse(hodiny.replaceAll(',', '.')) ?? 0.0;
     double cenaBezDph = pocetHodin * _hodinovaSazba;
+    double sDph = cenaBezDph * 1.21;
+
     _praceCenaBezDphController.text = cenaBezDph.toStringAsFixed(2);
-    _vypocitejDPH(cenaBezDph.toString(), _praceCenaSDphController);
+    _praceCenaSDphController.text = sDph.toStringAsFixed(2);
+    _prepocitatCelkem();
+  }
+
+  void _prepocitatDphPrace(String bezDphText) {
+    double bezDph = double.tryParse(bezDphText.replaceAll(',', '.')) ?? 0.0;
+    _praceCenaSDphController.text = (bezDph * 1.21).toStringAsFixed(2);
+    _prepocitatCelkem();
+  }
+
+  void _prepocitatDphDilu(DilInput dil, String bezDphText) {
+    double bezDph = double.tryParse(bezDphText.replaceAll(',', '.')) ?? 0.0;
+    dil.cenaSDph.text = (bezDph * 1.21).toStringAsFixed(2);
+    _prepocitatCelkem();
+  }
+
+  void _prepocitatCelkem() {
+    _prepocitatCelkovouCenu();
   }
 
   @override
@@ -1312,11 +1388,22 @@ class _AddWorkSheetState extends State<_AddWorkSheet> {
   }
 
   Future<void> _saveWork() async {
-    if (_nazevController.text.trim().isEmpty) return;
+    if (_nazevController.text.trim().isEmpty) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(
+          content: Text('Zadejte alespoň název úkonu.'),
+          backgroundColor: Colors.orange,
+        ),
+      );
+      return;
+    }
+
     setState(() => _isSaving = true);
+
     try {
       final user = FirebaseAuth.instance.currentUser;
       List<String> uploadedUrls = [];
+
       for (int i = 0; i < _workImages.length; i++) {
         String fileName =
             'prace_${DateTime.now().millisecondsSinceEpoch}_$i.jpg';
@@ -1326,6 +1413,7 @@ class _AddWorkSheetState extends State<_AddWorkSheet> {
         await ref.putData(await _workImages[i].readAsBytes());
         uploadedUrls.add(await ref.getDownloadURL());
       }
+
       List<Map<String, dynamic>> pouziteDily = _dilyInputs
           .map(
             (dil) => {
@@ -1369,6 +1457,7 @@ class _AddWorkSheetState extends State<_AddWorkSheet> {
               },
             ]),
           });
+
       if (mounted) Navigator.pop(context);
     } catch (e) {
       ScaffoldMessenger.of(
@@ -1378,381 +1467,406 @@ class _AddWorkSheetState extends State<_AddWorkSheet> {
     }
   }
 
-  void _vypocitejDPH(String hodnota, TextEditingController cilovyController) {
-    double bezDph = double.tryParse(hodnota.replaceAll(',', '.')) ?? 0.0;
-    double sDph = bezDph * 1.21;
-    cilovyController.text = sDph.toStringAsFixed(2);
-  }
-
   @override
   Widget build(BuildContext context) {
     final isDark = Theme.of(context).brightness == Brightness.dark;
-    return Container(
-      decoration: BoxDecoration(
-        color: isDark ? const Color(0xFF1A1A1A) : Colors.white,
-        borderRadius: const BorderRadius.vertical(top: Radius.circular(25)),
+
+    return Scaffold(
+      backgroundColor: Theme.of(context).colorScheme.surface,
+      appBar: AppBar(
+        title: const Text('Nová položka dokladu'),
+        backgroundColor: isDark ? const Color(0xFF1A1A1A) : Colors.white,
       ),
-      padding: EdgeInsets.only(
-        bottom: MediaQuery.of(context).viewInsets.bottom,
-        top: 30,
-        left: 30,
-        right: 30,
-      ),
-      child: SingleChildScrollView(
-        child: Column(
-          mainAxisSize: MainAxisSize.min,
-          crossAxisAlignment: CrossAxisAlignment.start,
-          children: [
-            const Text(
-              'Zaznamenat práci',
-              style: TextStyle(fontSize: 24, fontWeight: FontWeight.bold),
-            ),
-            const SizedBox(height: 20),
-            TextField(
-              controller: _nazevController,
-              decoration: InputDecoration(
-                labelText: 'Název úkonu *',
-                filled: true,
-                fillColor: isDark ? const Color(0xFF2C2C2C) : Colors.grey[100],
-                border: OutlineInputBorder(
-                  borderRadius: BorderRadius.circular(15),
-                  borderSide: BorderSide.none,
-                ),
-              ),
-            ),
-            const SizedBox(height: 15),
-            Row(
-              children: [
-                Expanded(
-                  child: TextField(
-                    controller: _delkaController,
-                    keyboardType: const TextInputType.numberWithOptions(
-                      decimal: true,
-                    ),
-                    onChanged: _vypocitejCenuPrace,
-                    decoration: InputDecoration(
-                      labelText: 'Čas práce (hodiny)',
-                      hintText: 'např. 1.5',
-                      filled: true,
-                      fillColor: isDark
-                          ? const Color(0xFF2C2C2C)
-                          : Colors.grey[100],
-                      border: OutlineInputBorder(
-                        borderRadius: BorderRadius.circular(15),
-                        borderSide: BorderSide.none,
-                      ),
-                    ),
-                  ),
-                ),
-                const SizedBox(width: 10),
-                Expanded(
-                  child: TextField(
-                    controller: _praceCenaBezDphController,
-                    keyboardType: const TextInputType.numberWithOptions(
-                      decimal: true,
-                    ),
-                    onChanged: (val) =>
-                        _vypocitejDPH(val, _praceCenaSDphController),
-                    decoration: InputDecoration(
-                      labelText: 'Cena bez DPH',
-                      filled: true,
-                      fillColor: isDark
-                          ? const Color(0xFF2C2C2C)
-                          : Colors.grey[100],
-                      border: OutlineInputBorder(
-                        borderRadius: BorderRadius.circular(15),
-                        borderSide: BorderSide.none,
-                      ),
-                    ),
-                  ),
-                ),
-                const SizedBox(width: 10),
-                Expanded(
-                  child: TextField(
-                    controller: _praceCenaSDphController,
-                    keyboardType: const TextInputType.numberWithOptions(
-                      decimal: true,
-                    ),
-                    decoration: InputDecoration(
-                      labelText: 'Cena s DPH',
-                      filled: true,
-                      fillColor: isDark
-                          ? const Color(0xFF2C2C2C)
-                          : Colors.grey[100],
-                      border: OutlineInputBorder(
-                        borderRadius: BorderRadius.circular(15),
-                        borderSide: BorderSide.none,
-                      ),
-                    ),
-                  ),
-                ),
-              ],
-            ),
-            const SizedBox(height: 15),
-            Column(
-              crossAxisAlignment: CrossAxisAlignment.start,
-              children: [
-                const Text(
-                  'Použité díly:',
-                  style: TextStyle(
-                    fontWeight: FontWeight.bold,
-                    color: Colors.grey,
-                  ),
-                ),
-                const SizedBox(height: 10),
-                ...List.generate(_dilyInputs.length, (index) {
-                  final dil = _dilyInputs[index];
-                  return Container(
-                    margin: const EdgeInsets.only(bottom: 15),
-                    padding: const EdgeInsets.all(10),
-                    decoration: BoxDecoration(
-                      border: Border.all(color: Colors.grey.withOpacity(0.3)),
+      body: Column(
+        children: [
+          Expanded(
+            child: SingleChildScrollView(
+              padding: const EdgeInsets.all(20),
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  // --- KARTA 1: PRÁCE A ÚKON ---
+                  Card(
+                    color: isDark ? const Color(0xFF1A1A1A) : Colors.white,
+                    shape: RoundedRectangleBorder(
                       borderRadius: BorderRadius.circular(15),
                     ),
-                    child: Column(
-                      children: [
-                        Row(
-                          children: [
-                            Expanded(
-                              flex: 1,
-                              child: TextField(
-                                controller: dil.cislo,
-                                decoration: InputDecoration(
-                                  hintText: 'Číslo dílu',
-                                  filled: true,
-                                  fillColor: isDark
-                                      ? const Color(0xFF2C2C2C)
-                                      : Colors.grey[100],
-                                  border: OutlineInputBorder(
-                                    borderRadius: BorderRadius.circular(10),
-                                    borderSide: BorderSide.none,
-                                  ),
-                                  contentPadding: const EdgeInsets.symmetric(
-                                    horizontal: 10,
-                                    vertical: 10,
-                                  ),
-                                ),
-                              ),
-                            ),
-                            const SizedBox(width: 10),
-                            Expanded(
-                              flex: 2,
-                              child: TextField(
-                                controller: dil.nazev,
-                                decoration: InputDecoration(
-                                  hintText: 'Název dílu',
-                                  filled: true,
-                                  fillColor: isDark
-                                      ? const Color(0xFF2C2C2C)
-                                      : Colors.grey[100],
-                                  border: OutlineInputBorder(
-                                    borderRadius: BorderRadius.circular(10),
-                                    borderSide: BorderSide.none,
-                                  ),
-                                  contentPadding: const EdgeInsets.symmetric(
-                                    horizontal: 10,
-                                    vertical: 10,
-                                  ),
-                                ),
-                              ),
-                            ),
-                            IconButton(
-                              icon: const Icon(
-                                Icons.remove_circle_outline,
-                                color: Colors.red,
-                              ),
-                              onPressed: () => setState(() {
-                                dil.dispose();
-                                _dilyInputs.removeAt(index);
-                              }),
-                            ),
-                          ],
-                        ),
-                        const SizedBox(height: 10),
-                        Row(
-                          children: [
-                            Expanded(
-                              flex: 1,
-                              child: TextField(
-                                controller: dil.pocet,
-                                keyboardType: TextInputType.number,
-                                decoration: InputDecoration(
-                                  labelText: 'Počet',
-                                  filled: true,
-                                  fillColor: isDark
-                                      ? const Color(0xFF2C2C2C)
-                                      : Colors.grey[100],
-                                  border: OutlineInputBorder(
-                                    borderRadius: BorderRadius.circular(10),
-                                    borderSide: BorderSide.none,
-                                  ),
-                                  contentPadding: const EdgeInsets.symmetric(
-                                    horizontal: 10,
-                                    vertical: 10,
-                                  ),
-                                ),
-                              ),
-                            ),
-                            const SizedBox(width: 10),
-                            Expanded(
-                              flex: 2,
-                              child: TextField(
-                                controller: dil.cenaBezDph,
-                                keyboardType:
-                                    const TextInputType.numberWithOptions(
-                                      decimal: true,
-                                    ),
-                                onChanged: (val) =>
-                                    _vypocitejDPH(val, dil.cenaSDph),
-                                decoration: InputDecoration(
-                                  labelText: 'Cena bez DPH/ks',
-                                  filled: true,
-                                  fillColor: isDark
-                                      ? const Color(0xFF2C2C2C)
-                                      : Colors.grey[100],
-                                  border: OutlineInputBorder(
-                                    borderRadius: BorderRadius.circular(10),
-                                    borderSide: BorderSide.none,
-                                  ),
-                                  contentPadding: const EdgeInsets.symmetric(
-                                    horizontal: 10,
-                                    vertical: 10,
-                                  ),
-                                ),
-                              ),
-                            ),
-                            const SizedBox(width: 10),
-                            Expanded(
-                              flex: 2,
-                              child: TextField(
-                                controller: dil.cenaSDph,
-                                keyboardType:
-                                    const TextInputType.numberWithOptions(
-                                      decimal: true,
-                                    ),
-                                decoration: InputDecoration(
-                                  labelText: 'Cena s DPH/ks',
-                                  filled: true,
-                                  fillColor: isDark
-                                      ? const Color(0xFF2C2C2C)
-                                      : Colors.grey[100],
-                                  border: OutlineInputBorder(
-                                    borderRadius: BorderRadius.circular(10),
-                                    borderSide: BorderSide.none,
-                                  ),
-                                  contentPadding: const EdgeInsets.symmetric(
-                                    horizontal: 10,
-                                    vertical: 10,
-                                  ),
-                                ),
-                              ),
-                            ),
-                          ],
-                        ),
-                      ],
-                    ),
-                  );
-                }),
-                TextButton.icon(
-                  onPressed: () => setState(() => _dilyInputs.add(DilInput())),
-                  icon: const Icon(Icons.add),
-                  label: const Text('Přidat díl'),
-                ),
-              ],
-            ),
-            const SizedBox(height: 15),
-            TextField(
-              controller: _popisController,
-              maxLines: 2,
-              decoration: InputDecoration(
-                labelText: 'Popis / poznámka k úkonu',
-                filled: true,
-                fillColor: isDark ? const Color(0xFF2C2C2C) : Colors.grey[100],
-                border: OutlineInputBorder(
-                  borderRadius: BorderRadius.circular(15),
-                  borderSide: BorderSide.none,
-                ),
-              ),
-            ),
-            const SizedBox(height: 20),
-            const Text(
-              'Fotografie k úkonu:',
-              style: TextStyle(fontWeight: FontWeight.bold),
-            ),
-            const SizedBox(height: 10),
-            SizedBox(
-              height: 80,
-              child: Row(
-                children: [
-                  GestureDetector(
-                    onTap: _takePhoto,
-                    child: Container(
-                      width: 80,
-                      decoration: BoxDecoration(
-                        color: Colors.blue.withOpacity(0.1),
-                        borderRadius: BorderRadius.circular(10),
-                        border: Border.all(color: Colors.blue),
-                      ),
-                      child: const Icon(Icons.add_a_photo, color: Colors.blue),
-                    ),
-                  ),
-                  const SizedBox(width: 10),
-                  GestureDetector(
-                    onTap: _pickFromGallery,
-                    child: Container(
-                      width: 80,
-                      decoration: BoxDecoration(
-                        color: Colors.blueGrey.withOpacity(0.1),
-                        borderRadius: BorderRadius.circular(10),
-                        border: Border.all(color: Colors.blueGrey),
-                      ),
-                      child: const Icon(
-                        Icons.photo_library,
-                        color: Colors.blueGrey,
-                      ),
-                    ),
-                  ),
-                  const SizedBox(width: 10),
-                  Expanded(
-                    child: ListView.builder(
-                      scrollDirection: Axis.horizontal,
-                      itemCount: _workImages.length,
-                      itemBuilder: (c, i) => Stack(
+                    child: Padding(
+                      padding: const EdgeInsets.all(20),
+                      child: Column(
+                        crossAxisAlignment: CrossAxisAlignment.start,
                         children: [
-                          Container(
-                            margin: const EdgeInsets.only(right: 10),
-                            child: ClipRRect(
-                              borderRadius: BorderRadius.circular(10),
-                              child: kIsWeb
-                                  ? Image.network(
-                                      _workImages[i].path,
-                                      width: 80,
-                                      height: 80,
-                                      fit: BoxFit.cover,
-                                    )
-                                  : Image.file(
-                                      File(_workImages[i].path),
-                                      width: 80,
-                                      height: 80,
-                                      fit: BoxFit.cover,
+                          const Row(
+                            children: [
+                              Icon(Icons.build, color: Colors.blue),
+                              SizedBox(width: 10),
+                              Text(
+                                'Hlavička úkonu',
+                                style: TextStyle(
+                                  fontSize: 18,
+                                  fontWeight: FontWeight.bold,
+                                ),
+                              ),
+                            ],
+                          ),
+                          const SizedBox(height: 20),
+                          _buildTextField(
+                            _nazevController,
+                            'Název úkonu *',
+                            isDark,
+                            isBold: true,
+                          ),
+                          const SizedBox(height: 15),
+                          Row(
+                            children: [
+                              Expanded(
+                                child: _buildTextField(
+                                  _delkaController,
+                                  'Čas (hod)',
+                                  isDark,
+                                  isNumber: true,
+                                  onChanged: _vypocitejCenuPraceZ_Hodin,
+                                ),
+                              ),
+                              const SizedBox(width: 10),
+                              Expanded(
+                                child: _buildTextField(
+                                  _praceCenaBezDphController,
+                                  'Cena bez DPH',
+                                  isDark,
+                                  isNumber: true,
+                                  onChanged: _prepocitatDphPrace,
+                                ),
+                              ),
+                              const SizedBox(width: 10),
+                              Expanded(
+                                child: _buildTextField(
+                                  _praceCenaSDphController,
+                                  'Cena s DPH',
+                                  isDark,
+                                  isNumber: true,
+                                  onChanged: (v) => _prepocitatCelkem(),
+                                ),
+                              ),
+                            ],
+                          ),
+                        ],
+                      ),
+                    ),
+                  ),
+                  const SizedBox(height: 15),
+
+                  // --- KARTA 2: MATERIÁL A DÍLY ---
+                  Card(
+                    color: isDark ? const Color(0xFF1A1A1A) : Colors.white,
+                    shape: RoundedRectangleBorder(
+                      borderRadius: BorderRadius.circular(15),
+                    ),
+                    child: Padding(
+                      padding: const EdgeInsets.all(20),
+                      child: Column(
+                        crossAxisAlignment: CrossAxisAlignment.start,
+                        children: [
+                          const Row(
+                            children: [
+                              Icon(Icons.inventory_2, color: Colors.orange),
+                              SizedBox(width: 10),
+                              Text(
+                                'Materiál a díly',
+                                style: TextStyle(
+                                  fontSize: 18,
+                                  fontWeight: FontWeight.bold,
+                                ),
+                              ),
+                            ],
+                          ),
+                          const SizedBox(height: 15),
+
+                          ...List.generate(_dilyInputs.length, (index) {
+                            final dil = _dilyInputs[index];
+
+                            double dPocet =
+                                double.tryParse(
+                                  dil.pocet.text.replaceAll(',', '.'),
+                                ) ??
+                                0.0;
+                            double dCena =
+                                double.tryParse(
+                                  dil.cenaSDph.text.replaceAll(',', '.'),
+                                ) ??
+                                0.0;
+                            double rCelkem = dPocet * dCena;
+
+                            return Container(
+                              margin: const EdgeInsets.only(bottom: 15),
+                              padding: const EdgeInsets.all(15),
+                              decoration: BoxDecoration(
+                                color: isDark
+                                    ? const Color(0xFF2C2C2C)
+                                    : Colors.grey[50],
+                                border: Border.all(
+                                  color: Colors.grey.withOpacity(0.3),
+                                ),
+                                borderRadius: BorderRadius.circular(10),
+                              ),
+                              child: Column(
+                                children: [
+                                  Row(
+                                    children: [
+                                      Expanded(
+                                        flex: 2,
+                                        child: _buildTextField(
+                                          dil.cislo,
+                                          'Číslo dílu',
+                                          isDark,
+                                          compact: true,
+                                        ),
+                                      ),
+                                      const SizedBox(width: 10),
+                                      Expanded(
+                                        flex: 4,
+                                        child: _buildTextField(
+                                          dil.nazev,
+                                          'Název dílu',
+                                          isDark,
+                                          compact: true,
+                                        ),
+                                      ),
+                                      IconButton(
+                                        icon: const Icon(
+                                          Icons.delete,
+                                          color: Colors.red,
+                                        ),
+                                        onPressed: () {
+                                          setState(() {
+                                            dil.dispose();
+                                            _dilyInputs.removeAt(index);
+                                            _prepocitatCelkem();
+                                          });
+                                        },
+                                      ),
+                                    ],
+                                  ),
+                                  const SizedBox(height: 10),
+                                  Row(
+                                    children: [
+                                      Expanded(
+                                        flex: 1,
+                                        child: _buildTextField(
+                                          dil.pocet,
+                                          'Ks',
+                                          isDark,
+                                          isNumber: true,
+                                          compact: true,
+                                          onChanged: (v) => _prepocitatCelkem(),
+                                        ),
+                                      ),
+                                      const SizedBox(width: 10),
+                                      Expanded(
+                                        flex: 2,
+                                        child: _buildTextField(
+                                          dil.cenaBezDph,
+                                          'Bez DPH/ks',
+                                          isDark,
+                                          isNumber: true,
+                                          compact: true,
+                                          onChanged: (v) =>
+                                              _prepocitatDphDilu(dil, v),
+                                        ),
+                                      ),
+                                      const SizedBox(width: 10),
+                                      Expanded(
+                                        flex: 2,
+                                        child: _buildTextField(
+                                          dil.cenaSDph,
+                                          'S DPH/ks',
+                                          isDark,
+                                          isNumber: true,
+                                          compact: true,
+                                          onChanged: (v) => _prepocitatCelkem(),
+                                        ),
+                                      ),
+                                    ],
+                                  ),
+
+                                  const SizedBox(height: 10),
+                                  Container(
+                                    padding: const EdgeInsets.symmetric(
+                                      horizontal: 10,
+                                      vertical: 5,
                                     ),
+                                    decoration: BoxDecoration(
+                                      color: Colors.blue.withOpacity(0.1),
+                                      borderRadius: BorderRadius.circular(8),
+                                    ),
+                                    child: Row(
+                                      mainAxisAlignment: MainAxisAlignment.end,
+                                      children: [
+                                        const Text(
+                                          'Celkem za materiál: ',
+                                          style: TextStyle(
+                                            color: Colors.blue,
+                                            fontSize: 12,
+                                          ),
+                                        ),
+                                        Text(
+                                          '${rCelkem.toStringAsFixed(2)} Kč',
+                                          style: const TextStyle(
+                                            fontWeight: FontWeight.bold,
+                                            color: Colors.blue,
+                                            fontSize: 14,
+                                          ),
+                                        ),
+                                      ],
+                                    ),
+                                  ),
+                                ],
+                              ),
+                            );
+                          }),
+
+                          TextButton.icon(
+                            onPressed: () =>
+                                setState(() => _dilyInputs.add(DilInput())),
+                            icon: const Icon(Icons.add),
+                            label: const Text('Přidat řádek materiálu'),
+                          ),
+                        ],
+                      ),
+                    ),
+                  ),
+                  const SizedBox(height: 15),
+
+                  // --- KARTA 3: OSTATNÍ (FOTKY A POZNÁMKY) ---
+                  Card(
+                    color: isDark ? const Color(0xFF1A1A1A) : Colors.white,
+                    shape: RoundedRectangleBorder(
+                      borderRadius: BorderRadius.circular(15),
+                    ),
+                    child: Padding(
+                      padding: const EdgeInsets.all(20),
+                      child: Column(
+                        crossAxisAlignment: CrossAxisAlignment.start,
+                        children: [
+                          const Row(
+                            children: [
+                              Icon(Icons.more_horiz, color: Colors.purple),
+                              SizedBox(width: 10),
+                              Text(
+                                'Doplňující informace',
+                                style: TextStyle(
+                                  fontSize: 18,
+                                  fontWeight: FontWeight.bold,
+                                ),
+                              ),
+                            ],
+                          ),
+                          const SizedBox(height: 15),
+                          _buildTextField(
+                            _popisController,
+                            'Interní poznámka k úkonu',
+                            isDark,
+                            maxLines: 2,
+                          ),
+                          const SizedBox(height: 20),
+                          const Text(
+                            'Fotodokumentace úkonu:',
+                            style: TextStyle(
+                              fontWeight: FontWeight.bold,
+                              color: Colors.grey,
                             ),
                           ),
-                          Positioned(
-                            top: 2,
-                            right: 12,
-                            child: GestureDetector(
-                              onTap: () =>
-                                  setState(() => _workImages.removeAt(i)),
-                              child: const CircleAvatar(
-                                radius: 10,
-                                backgroundColor: Colors.white,
-                                child: Icon(
-                                  Icons.close,
-                                  size: 12,
-                                  color: Colors.red,
+                          const SizedBox(height: 10),
+                          SizedBox(
+                            height: 80,
+                            child: Row(
+                              children: [
+                                GestureDetector(
+                                  onTap: _takePhoto,
+                                  child: Container(
+                                    width: 80,
+                                    decoration: BoxDecoration(
+                                      color: Colors.blue.withOpacity(0.1),
+                                      borderRadius: BorderRadius.circular(10),
+                                      border: Border.all(color: Colors.blue),
+                                    ),
+                                    child: const Icon(
+                                      Icons.add_a_photo,
+                                      color: Colors.blue,
+                                    ),
+                                  ),
                                 ),
-                              ),
+                                const SizedBox(width: 10),
+                                GestureDetector(
+                                  onTap: _pickFromGallery,
+                                  child: Container(
+                                    width: 80,
+                                    decoration: BoxDecoration(
+                                      color: Colors.blueGrey.withOpacity(0.1),
+                                      borderRadius: BorderRadius.circular(10),
+                                      border: Border.all(
+                                        color: Colors.blueGrey,
+                                      ),
+                                    ),
+                                    child: const Icon(
+                                      Icons.photo_library,
+                                      color: Colors.blueGrey,
+                                    ),
+                                  ),
+                                ),
+                                const SizedBox(width: 10),
+                                Expanded(
+                                  child: ListView.builder(
+                                    scrollDirection: Axis.horizontal,
+                                    itemCount: _workImages.length,
+                                    itemBuilder: (c, i) => Stack(
+                                      children: [
+                                        Container(
+                                          margin: const EdgeInsets.only(
+                                            right: 10,
+                                          ),
+                                          child: ClipRRect(
+                                            borderRadius: BorderRadius.circular(
+                                              10,
+                                            ),
+                                            child: kIsWeb
+                                                ? Image.network(
+                                                    _workImages[i].path,
+                                                    width: 80,
+                                                    height: 80,
+                                                    fit: BoxFit.cover,
+                                                  )
+                                                : Image.file(
+                                                    File(_workImages[i].path),
+                                                    width: 80,
+                                                    height: 80,
+                                                    fit: BoxFit.cover,
+                                                  ),
+                                          ),
+                                        ),
+                                        Positioned(
+                                          top: 2,
+                                          right: 12,
+                                          child: GestureDetector(
+                                            onTap: () => setState(
+                                              () => _workImages.removeAt(i),
+                                            ),
+                                            child: const CircleAvatar(
+                                              radius: 10,
+                                              backgroundColor: Colors.white,
+                                              child: Icon(
+                                                Icons.close,
+                                                size: 12,
+                                                color: Colors.red,
+                                              ),
+                                            ),
+                                          ),
+                                        ),
+                                      ],
+                                    ),
+                                  ),
+                                ),
+                              ],
                             ),
                           ),
                         ],
@@ -1762,29 +1876,120 @@ class _AddWorkSheetState extends State<_AddWorkSheet> {
                 ],
               ),
             ),
-            const SizedBox(height: 30),
-            SizedBox(
-              width: double.infinity,
-              child: ElevatedButton(
-                onPressed: _isSaving ? null : _saveWork,
-                style: ElevatedButton.styleFrom(
-                  backgroundColor: Colors.blue,
-                  foregroundColor: Colors.white,
-                  padding: const EdgeInsets.symmetric(vertical: 18),
-                  shape: RoundedRectangleBorder(
-                    borderRadius: BorderRadius.circular(15),
-                  ),
+          ),
+
+          // --- SPODNÍ PLOVOUCÍ LIŠTA (SUMÁŘ) ---
+          Container(
+            padding: const EdgeInsets.symmetric(horizontal: 20, vertical: 15),
+            decoration: BoxDecoration(
+              color: isDark ? const Color(0xFF121212) : Colors.white,
+              boxShadow: [
+                BoxShadow(
+                  color: Colors.black.withOpacity(0.1),
+                  blurRadius: 10,
+                  offset: const Offset(0, -5),
                 ),
-                child: _isSaving
-                    ? const CircularProgressIndicator(color: Colors.white)
-                    : const Text(
-                        'ULOŽIT ÚKON',
-                        style: TextStyle(fontWeight: FontWeight.bold),
+              ],
+            ),
+            child: SafeArea(
+              child: Row(
+                children: [
+                  Expanded(
+                    child: Column(
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      mainAxisSize: MainAxisSize.min,
+                      children: [
+                        const Text(
+                          'Celkem za položku',
+                          style: TextStyle(color: Colors.grey, fontSize: 12),
+                        ),
+                        Text(
+                          '${_celkovaCenaSDph.toStringAsFixed(2)} Kč',
+                          style: const TextStyle(
+                            fontSize: 22,
+                            fontWeight: FontWeight.bold,
+                            color: Colors.green,
+                          ),
+                        ),
+                      ],
+                    ),
+                  ),
+                  ElevatedButton.icon(
+                    onPressed: _isSaving ? null : _saveWork,
+                    icon: _isSaving
+                        ? const SizedBox(
+                            width: 16,
+                            height: 16,
+                            child: CircularProgressIndicator(
+                              color: Colors.white,
+                              strokeWidth: 2,
+                            ),
+                          )
+                        : const Icon(Icons.check),
+                    label: Text(
+                      _isSaving ? 'UKLÁDÁM...' : 'ULOŽIT POLOŽKU',
+                      style: const TextStyle(fontWeight: FontWeight.bold),
+                    ),
+                    style: ElevatedButton.styleFrom(
+                      backgroundColor: Colors.blue,
+                      foregroundColor: Colors.white,
+                      padding: const EdgeInsets.symmetric(
+                        horizontal: 25,
+                        vertical: 15,
                       ),
+                      shape: RoundedRectangleBorder(
+                        borderRadius: BorderRadius.circular(10),
+                      ),
+                    ),
+                  ),
+                ],
               ),
             ),
-            const SizedBox(height: 30),
-          ],
+          ),
+        ],
+      ),
+    );
+  }
+
+  // --- POMOCNÝ WIDGET PRO TEXTOVÁ POLE ---
+  Widget _buildTextField(
+    TextEditingController controller,
+    String hint,
+    bool isDark, {
+    bool isNumber = false,
+    bool isBold = false,
+    bool compact = false,
+    int maxLines = 1,
+    Function(String)? onChanged,
+  }) {
+    return TextField(
+      controller: controller,
+      keyboardType: isNumber
+          ? const TextInputType.numberWithOptions(decimal: true)
+          : TextInputType.text,
+      maxLines: maxLines,
+      onChanged: onChanged,
+      style: TextStyle(
+        fontWeight: isBold ? FontWeight.bold : FontWeight.normal,
+        fontSize: isBold ? 16 : 14,
+      ),
+      decoration: InputDecoration(
+        labelText: hint,
+        filled: true,
+        fillColor: isDark
+            ? (compact ? const Color(0xFF1E1E1E) : const Color(0xFF2C2C2C))
+            : Colors.white,
+        contentPadding: EdgeInsets.symmetric(
+          horizontal: 15,
+          vertical: compact ? 10 : 15,
+        ),
+        enabledBorder: OutlineInputBorder(
+          borderRadius: BorderRadius.circular(10),
+          borderSide: BorderSide(color: Colors.grey.withOpacity(0.3)),
+        ),
+        focusedBorder: OutlineInputBorder(
+          borderRadius: BorderRadius.circular(10),
+          borderSide: const BorderSide(color: Colors.blue, width: 2),
         ),
       ),
     );

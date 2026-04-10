@@ -658,7 +658,7 @@ class _MainWizardPageState extends State<MainWizardPage> {
       crossAxisAlignment: CrossAxisAlignment.start,
       children: [
         const Text(
-          'Údaje o zákazníkovi',
+          'Příjem Vozidla',
           style: TextStyle(fontSize: 32, fontWeight: FontWeight.bold),
         ),
         const SizedBox(height: 40),
