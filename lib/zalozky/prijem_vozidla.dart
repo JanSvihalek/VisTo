@@ -85,6 +85,10 @@ class _MainWizardPageState extends State<MainWizardPage> {
 
   final List<TextEditingController> _pozadavkyControllers = [TextEditingController()];
 
+  // --- NOVÉ: Dynamický seznam úkonů ---
+  List<String> _rychleUkony = [];
+  bool _isLoadingUkony = true;
+
   final SignatureController _signatureController = SignatureController(
     penStrokeWidth: 3,
     penColor: Colors.black,
@@ -95,6 +99,42 @@ class _MainWizardPageState extends State<MainWizardPage> {
   void initState() {
     super.initState();
     _generujCisloZakazky();
+    _nactiRychleUkony(); // Zavoláme stažení úkonů při startu
+  }
+
+  Future<void> _nactiRychleUkony() async {
+    final user = FirebaseAuth.instance.currentUser;
+    if (user != null) {
+      try {
+        final doc = await FirebaseFirestore.instance.collection('nastaveni_servisu').doc(user.uid).get();
+        if (doc.exists && doc.data()!.containsKey('rychle_ukony')) {
+          if (mounted) {
+            setState(() {
+              _rychleUkony = List<String>.from(doc.data()!['rychle_ukony']);
+              _isLoadingUkony = false;
+            });
+          }
+        } else {
+          // Pokud si uživatel ještě žádné nenastavil, dáme tam ty výchozí
+          if (mounted) {
+            setState(() {
+              _rychleUkony = [
+                'Výměna oleje a filtrů',
+                'Kontrola brzd',
+                'Servis klimatizace',
+                'Příprava a provedení STK',
+                'Geometrie kol',
+                'Pneuservis (přezutí)',
+                'Diagnostika závad'
+              ];
+              _isLoadingUkony = false;
+            });
+          }
+        }
+      } catch (e) {
+        if (mounted) setState(() => _isLoadingUkony = false);
+      }
+    }
   }
 
   Future<void> _generujCisloZakazky() async {
@@ -1551,56 +1591,88 @@ class _MainWizardPageState extends State<MainWizardPage> {
     ),
   );
 
-  Widget _buildPraceStep(bool isDark) => SingleChildScrollView(
-    padding: const EdgeInsets.all(30),
-    child: Column(
-      crossAxisAlignment: CrossAxisAlignment.start,
-      children: [
-        const Text(
-          'Požadované práce',
-          style: TextStyle(fontSize: 32, fontWeight: FontWeight.bold),
-        ),
-        const SizedBox(height: 20),
-        const Text(
-          'Na čem jsme se se zákazníkem domluvili?',
-          style: TextStyle(fontSize: 16, color: Colors.grey),
-        ),
-        const SizedBox(height: 30),
-        ...List.generate(_pozadavkyControllers.length, (index) {
-          return Padding(
-            padding: const EdgeInsets.only(bottom: 15),
-            child: Row(
-              crossAxisAlignment: CrossAxisAlignment.end,
-              children: [
-                Expanded(
-                  child: _buildInput(
-                    'Úkon ${index + 1}',
-                    Icons.build_circle_outlined,
-                    _pozadavkyControllers[index],
-                    isDark,
-                  ),
-                ),
-                if (_pozadavkyControllers.length > 1)
-                  Padding(
-                    padding: const EdgeInsets.only(left: 10, bottom: 5),
-                    child: IconButton(
-                      icon: const Icon(Icons.remove_circle_outline, color: Colors.red, size: 30),
-                      onPressed: () => setState(() => _pozadavkyControllers.removeAt(index)),
+  Widget _buildPraceStep(bool isDark) {
+    return SingleChildScrollView(
+      padding: const EdgeInsets.all(30),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          const Text(
+            'Požadované práce',
+            style: TextStyle(fontSize: 32, fontWeight: FontWeight.bold),
+          ),
+          const SizedBox(height: 20),
+          const Text(
+            'Na čem jsme se se zákazníkem domluvili?',
+            style: TextStyle(fontSize: 16, color: Colors.grey),
+          ),
+          const SizedBox(height: 30),
+          
+          if (!_isLoadingUkony && _rychleUkony.isNotEmpty) ...[
+            const Text('Rychlý výběr nejčastějších úkonů:', style: TextStyle(fontWeight: FontWeight.bold, color: Colors.blue)),
+            const SizedBox(height: 10),
+            Wrap(
+              spacing: 8,
+              runSpacing: 8,
+              children: _rychleUkony.map((ukon) => ActionChip(
+                label: Text(ukon, style: const TextStyle(fontSize: 13)),
+                backgroundColor: isDark ? const Color(0xFF2C2C2C) : Colors.blue.withOpacity(0.05),
+                side: BorderSide(color: Colors.blue.withOpacity(0.3)),
+                onPressed: () {
+                  setState(() {
+                    if (_pozadavkyControllers.last.text.isEmpty) {
+                      _pozadavkyControllers.last.text = ukon;
+                    } else {
+                      _pozadavkyControllers.add(TextEditingController(text: ukon));
+                    }
+                  });
+                },
+              )).toList(),
+            ),
+            const SizedBox(height: 30),
+            const Divider(),
+            const SizedBox(height: 20),
+          ],
+
+          const Text('Seznam požadavků k zakázce:', style: TextStyle(fontSize: 16, color: Colors.grey)),
+          const SizedBox(height: 20),
+
+          ...List.generate(_pozadavkyControllers.length, (index) {
+            return Padding(
+              padding: const EdgeInsets.only(bottom: 15),
+              child: Row(
+                crossAxisAlignment: CrossAxisAlignment.end,
+                children: [
+                  Expanded(
+                    child: _buildInput(
+                      'Úkon ${index + 1}',
+                      Icons.build_circle_outlined,
+                      _pozadavkyControllers[index],
+                      isDark,
                     ),
                   ),
-              ],
-            ),
-          );
-        }),
-        const SizedBox(height: 10),
-        TextButton.icon(
-          onPressed: () => setState(() => _pozadavkyControllers.add(TextEditingController())),
-          icon: const Icon(Icons.add),
-          label: const Text('Přidat další úkon', style: TextStyle(fontWeight: FontWeight.bold, fontSize: 16)),
-        )
-      ],
-    ),
-  );
+                  if (_pozadavkyControllers.length > 1)
+                    Padding(
+                      padding: const EdgeInsets.only(left: 10, bottom: 5),
+                      child: IconButton(
+                        icon: const Icon(Icons.remove_circle_outline, color: Colors.red, size: 30),
+                        onPressed: () => setState(() => _pozadavkyControllers.removeAt(index)),
+                      ),
+                    ),
+                ],
+              ),
+            );
+          }),
+          const SizedBox(height: 10),
+          TextButton.icon(
+            onPressed: () => setState(() => _pozadavkyControllers.add(TextEditingController())),
+            icon: const Icon(Icons.add),
+            label: const Text('Přidat jiný úkon', style: TextStyle(fontWeight: FontWeight.bold, fontSize: 16)),
+          )
+        ],
+      ),
+    );
+  }
 
   Widget _buildPodpisStep(bool isDark) {
     final validniPozadavky = _pozadavkyControllers.where((c) => c.text.trim().isNotEmpty).toList();
