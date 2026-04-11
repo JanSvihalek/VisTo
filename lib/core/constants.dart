@@ -1,40 +1,25 @@
 import 'package:flutter/material.dart';
 
-// --- GLOBÁLNÍ KONSTANTY ---
-const Map<String, dynamic> photoCategories = {
-  'karoserie': {
-    'label': 'Karoserie (celkový pohled)',
-    'icon': Icons.directions_car_rounded,
-  },
-  'disky': {'label': 'Disky a kola', 'icon': Icons.tire_repair_rounded},
-  'sklo': {'label': 'Čelní sklo', 'icon': Icons.branding_watermark_rounded},
-  'nadrz': {'label': 'Stav nádrže', 'icon': Icons.local_gas_station_rounded},
-  'tachometr': {
-    'label': 'Tachometr (ujetá vzdálenost)',
-    'icon': Icons.speed_rounded,
-  },
-  'stk': {'label': 'Nálepka STK', 'icon': Icons.check_circle_outline_rounded},
-};
+// Globální ThemeNotifier pro přepínání světlého a tmavého režimu
+final ValueNotifier<ThemeMode> themeNotifier = ValueNotifier(ThemeMode.light);
 
-// --- STAVY ZAKÁZKY ---
+// Seznam dostupných stavů zakázky
 const List<String> stavyZakazky = [
   'Přijato',
-  'V opravě',
+  'V řešení',
   'Čeká na díly',
-  'K vyzvednutí',
-  'Dokončeno',
+  'Dokončeno'
 ];
 
+// Přiřazení barev k jednotlivým stavům
 Color getStatusColor(String stav) {
   switch (stav) {
     case 'Přijato':
       return Colors.blue;
-    case 'V opravě':
+    case 'V řešení':
       return Colors.orange;
     case 'Čeká na díly':
-      return Colors.redAccent;
-    case 'K vyzvednutí':
-      return Colors.purple;
+      return Colors.red;
     case 'Dokončeno':
       return Colors.green;
     default:
@@ -42,13 +27,26 @@ Color getStatusColor(String stav) {
   }
 }
 
-// --- TŘÍDA PRO DÍLY ---
+// Kategorie fotografií pro Příjem a Průběh
+// LOGICKÉ POŘADÍ (Obchůzka zvenku -> Sednutí dovnitř)
+final Map<String, Map<String, dynamic>> photoCategories = {
+  'zvenku': {'label': 'Pohled zvenku (kolem vozu)', 'icon': Icons.directions_car},
+  'poskozeni': {'label': 'Zjištěná poškození', 'icon': Icons.car_crash},
+  'disky': {'label': 'Disky a kola', 'icon': Icons.tire_repair},
+  'stk': {'label': 'Nálepka STK', 'icon': Icons.calendar_month},
+  'interier': {'label': 'Interiér vozu', 'icon': Icons.airline_seat_recline_normal},
+  'tachometr': {'label': 'Tachometr a palubní deska', 'icon': Icons.speed},
+  'vin': {'label': 'VIN kód', 'icon': Icons.confirmation_number},
+  'ostatni': {'label': 'Ostatní dokumentace', 'icon': Icons.camera_alt},
+};
+
+// Třída pro dynamické zadávání použitých dílů (používá se v prubeh.dart)
 class DilInput {
-  final cislo = TextEditingController();
-  final nazev = TextEditingController();
-  final pocet = TextEditingController(text: '1');
-  final cenaBezDph = TextEditingController();
-  final cenaSDph = TextEditingController();
+  final TextEditingController cislo = TextEditingController();
+  final TextEditingController nazev = TextEditingController();
+  final TextEditingController pocet = TextEditingController(text: '1');
+  final TextEditingController cenaBezDph = TextEditingController();
+  final TextEditingController cenaSDph = TextEditingController();
 
   void dispose() {
     cislo.dispose();
@@ -58,6 +56,3 @@ class DilInput {
     cenaSDph.dispose();
   }
 }
-
-// --- GLOBÁLNÍ STAV PRO TMÁVÝ/SVĚTLÝ REŽIM ---
-final ValueNotifier<ThemeMode> themeNotifier = ValueNotifier(ThemeMode.light);

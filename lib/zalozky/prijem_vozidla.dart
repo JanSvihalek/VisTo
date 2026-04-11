@@ -72,7 +72,7 @@ class _MainWizardPageState extends State<MainWizardPage> {
   ];
 
   final _tachometrController = TextEditingController();
-  final _poskozeniController = TextEditingController(); // CHYBĚLO ZDE
+  final _poskozeniController = TextEditingController(); 
   double _stavNadrze = 50.0;
 
   final _stkMesicController = TextEditingController();
@@ -83,10 +83,7 @@ class _MainWizardPageState extends State<MainWizardPage> {
   final _pneuLZController = TextEditingController();
   final _pneuPZController = TextEditingController();
 
-  // DEKLARACE POŽADAVKŮ
-  final List<TextEditingController> _pozadavkyControllers = [
-    TextEditingController(),
-  ];
+  final List<TextEditingController> _pozadavkyControllers = [TextEditingController()];
 
   final SignatureController _signatureController = SignatureController(
     penStrokeWidth: 3,
@@ -103,7 +100,7 @@ class _MainWizardPageState extends State<MainWizardPage> {
   Future<void> _generujCisloZakazky() async {
     setState(() => _isGeneratingCislo = true);
 
-    String prefixBase = 'ZAK';
+    String prefixBase = 'ZAK'; 
 
     try {
       final user = FirebaseAuth.instance.currentUser;
@@ -125,7 +122,6 @@ class _MainWizardPageState extends State<MainWizardPage> {
       final todayPrefix = DateFormat('yyMMdd').format(DateTime.now());
       final prefix = '$prefixBase-$todayPrefix-';
 
-      // Jednoduchý dotaz bez chyb z indexu
       final querySnapshot = await FirebaseFirestore.instance
           .collection('zakazky')
           .where('servis_id', isEqualTo: user.uid)
@@ -165,16 +161,10 @@ class _MainWizardPageState extends State<MainWizardPage> {
     }
   }
 
-  // --- BEZPEČNÉ HLEDÁNÍ SPZ BEZ INDEXŮ ---
   Future<void> _hledatPodleSpz() async {
     final spz = _spzController.text.trim().toUpperCase().replaceAll(' ', '');
     if (spz.isEmpty) {
-      ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(
-          content: Text('Zadejte alespoň část SPZ pro vyhledání.'),
-          backgroundColor: Colors.orange,
-        ),
-      );
+      ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('Zadejte alespoň část SPZ pro vyhledání.'), backgroundColor: Colors.orange));
       return;
     }
 
@@ -182,10 +172,8 @@ class _MainWizardPageState extends State<MainWizardPage> {
 
     try {
       final user = FirebaseAuth.instance.currentUser;
-
-      // Žádné "isGreaterThanOrEqualTo", aby Firebase nekřičel. Hledáme lokálně.
-      final vozidlaQuery = await FirebaseFirestore.instance
-          .collection('vozidla')
+      
+      final vozidlaQuery = await FirebaseFirestore.instance.collection('vozidla')
           .where('servis_id', isEqualTo: user!.uid)
           .get();
 
@@ -198,12 +186,7 @@ class _MainWizardPageState extends State<MainWizardPage> {
           .toList();
 
       if (nalezenaVozidla.isEmpty) {
-        ScaffoldMessenger.of(context).showSnackBar(
-          const SnackBar(
-            content: Text('Žádné vozidlo s touto SPZ nebylo nalezeno.'),
-            backgroundColor: Colors.blueGrey,
-          ),
-        );
+        ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('Žádné vozidlo s touto SPZ nebylo nalezeno.'), backgroundColor: Colors.blueGrey));
         return;
       }
 
@@ -212,21 +195,15 @@ class _MainWizardPageState extends State<MainWizardPage> {
       } else {
         _otevritVyberNalezenychVozidel(nalezenaVozidla);
       }
+
     } catch (e) {
-      ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(
-          content: Text('Chyba při vyhledávání: $e'),
-          backgroundColor: Colors.red,
-        ),
-      );
+      ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text('Chyba při vyhledávání: $e'), backgroundColor: Colors.red));
     } finally {
       if (mounted) setState(() => _isLoadingSpz = false);
     }
   }
 
-  Future<void> _aplikovatVybraneVozidlo(
-    Map<String, dynamic> vozidloData,
-  ) async {
+  Future<void> _aplikovatVybraneVozidlo(Map<String, dynamic> vozidloData) async {
     final user = FirebaseAuth.instance.currentUser;
     if (user == null) return;
 
@@ -237,20 +214,17 @@ class _MainWizardPageState extends State<MainWizardPage> {
       _vinController.text = vozidloData['vin']?.toString() ?? '';
       _rokVyrobyController.text = vozidloData['rok_vyroby']?.toString() ?? '';
       _motorizaceController.text = vozidloData['motorizace']?.toString() ?? '';
-      if (vozidloData['palivo'] != null &&
-          _moznostiPaliva.contains(vozidloData['palivo'])) {
+      if (vozidloData['palivo'] != null && _moznostiPaliva.contains(vozidloData['palivo'])) {
         _vybranePalivo = vozidloData['palivo'];
       }
-      if (vozidloData['prevodovka'] != null &&
-          _moznostiPrevodovky.contains(vozidloData['prevodovka'])) {
+      if (vozidloData['prevodovka'] != null && _moznostiPrevodovky.contains(vozidloData['prevodovka'])) {
         _vybranaPrevodovka = vozidloData['prevodovka'];
       }
     });
 
     final zakaznikId = vozidloData['zakaznik_id'];
     if (zakaznikId != null && zakaznikId.toString().isNotEmpty) {
-      final zakQuery = await FirebaseFirestore.instance
-          .collection('zakaznici')
+      final zakQuery = await FirebaseFirestore.instance.collection('zakaznici')
           .where('servis_id', isEqualTo: user.uid)
           .where('id_zakaznika', isEqualTo: zakaznikId)
           .get();
@@ -269,12 +243,7 @@ class _MainWizardPageState extends State<MainWizardPage> {
     }
 
     if (mounted) {
-      ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(
-          content: Text('Údaje o vozidle a zákazníkovi byly načteny.'),
-          backgroundColor: Colors.green,
-        ),
-      );
+      ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('Údaje o vozidle a zákazníkovi byly načteny.'), backgroundColor: Colors.green));
     }
   }
 
@@ -291,24 +260,11 @@ class _MainWizardPageState extends State<MainWizardPage> {
         padding: const EdgeInsets.all(20),
         child: Column(
           children: [
-            Container(
-              width: 40,
-              height: 4,
-              decoration: BoxDecoration(
-                color: Colors.grey[300],
-                borderRadius: BorderRadius.circular(10),
-              ),
-            ),
+            Container(width: 40, height: 4, decoration: BoxDecoration(color: Colors.grey[300], borderRadius: BorderRadius.circular(10))),
             const SizedBox(height: 20),
-            const Text(
-              'Nalezeno více vozidel',
-              style: TextStyle(fontSize: 20, fontWeight: FontWeight.bold),
-            ),
+            const Text('Nalezeno více vozidel', style: TextStyle(fontSize: 20, fontWeight: FontWeight.bold)),
             const SizedBox(height: 10),
-            const Text(
-              'Vyberte konkrétní vozidlo ze seznamu:',
-              style: TextStyle(color: Colors.grey),
-            ),
+            const Text('Vyberte konkrétní vozidlo ze seznamu:', style: TextStyle(color: Colors.grey)),
             const SizedBox(height: 15),
             Expanded(
               child: ListView.separated(
@@ -317,33 +273,25 @@ class _MainWizardPageState extends State<MainWizardPage> {
                 itemBuilder: (context, index) {
                   final v = vozidla[index];
                   return ListTile(
-                    leading: const CircleAvatar(
-                      backgroundColor: Colors.blue,
-                      foregroundColor: Colors.white,
-                      child: Icon(Icons.directions_car),
-                    ),
-                    title: Text(
-                      v['spz'] ?? 'Neznámá SPZ',
-                      style: const TextStyle(fontWeight: FontWeight.bold),
-                    ),
+                    leading: const CircleAvatar(backgroundColor: Colors.blue, foregroundColor: Colors.white, child: Icon(Icons.directions_car)),
+                    title: Text(v['spz'] ?? 'Neznámá SPZ', style: const TextStyle(fontWeight: FontWeight.bold)),
                     subtitle: Text('${v['znacka'] ?? ''} ${v['model'] ?? ''}'),
                     onTap: () {
                       Navigator.pop(context);
                       _aplikovatVybraneVozidlo(v);
                     },
                   );
-                },
-              ),
-            ),
-          ],
-        ),
-      ),
+                }
+              )
+            )
+          ]
+        )
+      )
     );
   }
 
   @override
   void dispose() {
-    // Všechny controllery bezpečně smazány
     _spzController.dispose();
     _znackaController.dispose();
     _modelController.dispose();
@@ -354,9 +302,7 @@ class _MainWizardPageState extends State<MainWizardPage> {
     _tachometrController.dispose();
     _poskozeniController.dispose();
     _signatureController.dispose();
-    for (var c in _pozadavkyControllers) {
-      c.dispose();
-    }
+    for (var c in _pozadavkyControllers) { c.dispose(); }
     super.dispose();
   }
 
@@ -664,7 +610,7 @@ class _MainWizardPageState extends State<MainWizardPage> {
             'pneu_pz': _pneuPZController.text.trim(),
           },
           'pozadavky_zakaznika': pozadovaneUkony,
-          'poznamky': _poznamkyController.text.trim(),
+          'poznamky': _poskozeniController.text.trim(),
           'fotografie_urls': imageUrlsByCategory,
           'podpis_url': podpisUrl,
           'provedene_prace': [],
@@ -702,10 +648,8 @@ class _MainWizardPageState extends State<MainWizardPage> {
     _stavNadrze = 50.0;
     _poskozeniController.clear();
     _signatureController.clear();
-
-    for (var c in _pozadavkyControllers) {
-      c.dispose();
-    }
+    
+    for (var c in _pozadavkyControllers) { c.dispose(); }
     _pozadavkyControllers.clear();
     _pozadavkyControllers.add(TextEditingController());
 
@@ -817,8 +761,8 @@ class _MainWizardPageState extends State<MainWizardPage> {
                   _buildZakaznikStep(isDark),
                   _buildCheckStep(isDark),
                   _buildPhotoStep(isDark),
-                  _buildPraceStep(isDark),
-                  _buildPodpisStep(isDark),
+                  _buildPraceStep(isDark), 
+                  _buildPodpisStep(isDark), 
                 ],
               ),
             ),
@@ -1001,7 +945,7 @@ class _MainWizardPageState extends State<MainWizardPage> {
                       tooltip: 'Vyhledat auto a majitele z historie',
                     ),
             ],
-          ),
+          )
         ),
         const SizedBox(height: 20),
         _buildInput('VIN kód', Icons.abc, _vinController, isDark, caps: true),
@@ -1300,8 +1244,8 @@ class _MainWizardPageState extends State<MainWizardPage> {
                               color: isSelected
                                   ? Colors.blue
                                   : (isDark
-                                        ? Colors.grey[800]!
-                                        : Colors.grey[300]!),
+                                      ? Colors.grey[800]!
+                                      : Colors.grey[300]!),
                             ),
                           ),
                           backgroundColor: isDark
@@ -1430,8 +1374,7 @@ class _MainWizardPageState extends State<MainWizardPage> {
                 borderRadius: BorderRadius.circular(15),
               ),
               child: TextField(
-                controller:
-                    _poskozeniController, // SPRAVENO NA SPRAVNY CONTROLLER PRO DODATECNE INFO
+                controller: _poskozeniController,
                 maxLines: 4,
                 decoration: InputDecoration(
                   hintText: 'Jakékoliv další detaily k příjmu...',
@@ -1489,7 +1432,7 @@ class _MainWizardPageState extends State<MainWizardPage> {
             separatorBuilder: (context, index) => const SizedBox(height: 15),
             itemBuilder: (context, index) {
               final key = photoCategories.keys.elementAt(index);
-              final category = photoCategories[key];
+              final category = photoCategories[key]!;
               final label = category['label'] as String;
               final icon = category['icon'] as IconData;
               final takenPhotos = _categoryImages[key] ?? [];
@@ -1641,13 +1584,8 @@ class _MainWizardPageState extends State<MainWizardPage> {
                   Padding(
                     padding: const EdgeInsets.only(left: 10, bottom: 5),
                     child: IconButton(
-                      icon: const Icon(
-                        Icons.remove_circle_outline,
-                        color: Colors.red,
-                        size: 30,
-                      ),
-                      onPressed: () =>
-                          setState(() => _pozadavkyControllers.removeAt(index)),
+                      icon: const Icon(Icons.remove_circle_outline, color: Colors.red, size: 30),
+                      onPressed: () => setState(() => _pozadavkyControllers.removeAt(index)),
                     ),
                   ),
               ],
@@ -1656,23 +1594,16 @@ class _MainWizardPageState extends State<MainWizardPage> {
         }),
         const SizedBox(height: 10),
         TextButton.icon(
-          onPressed: () => setState(
-            () => _pozadavkyControllers.add(TextEditingController()),
-          ),
+          onPressed: () => setState(() => _pozadavkyControllers.add(TextEditingController())),
           icon: const Icon(Icons.add),
-          label: const Text(
-            'Přidat další úkon',
-            style: TextStyle(fontWeight: FontWeight.bold, fontSize: 16),
-          ),
-        ),
+          label: const Text('Přidat další úkon', style: TextStyle(fontWeight: FontWeight.bold, fontSize: 16)),
+        )
       ],
     ),
   );
 
   Widget _buildPodpisStep(bool isDark) {
-    final validniPozadavky = _pozadavkyControllers
-        .where((c) => c.text.trim().isNotEmpty)
-        .toList();
+    final validniPozadavky = _pozadavkyControllers.where((c) => c.text.trim().isNotEmpty).toList();
 
     return SingleChildScrollView(
       padding: const EdgeInsets.all(30),
@@ -1695,56 +1626,27 @@ class _MainWizardPageState extends State<MainWizardPage> {
             child: Column(
               crossAxisAlignment: CrossAxisAlignment.start,
               children: [
-                Text(
-                  'Zákazník: ${_jmenoController.text.isEmpty ? 'Neuvedeno' : _jmenoController.text}',
-                  style: const TextStyle(
-                    fontWeight: FontWeight.bold,
-                    fontSize: 16,
-                  ),
-                ),
+                Text('Zákazník: ${_jmenoController.text.isEmpty ? 'Neuvedeno' : _jmenoController.text}', style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 16)),
                 const SizedBox(height: 5),
-                Text(
-                  'Vozidlo: ${_spzController.text.toUpperCase()} ${_znackaController.text}',
-                  style: const TextStyle(fontSize: 16),
-                ),
-
+                Text('Vozidlo: ${_spzController.text.toUpperCase()} ${_znackaController.text}', style: const TextStyle(fontSize: 16)),
+                
                 if (validniPozadavky.isNotEmpty) ...[
                   const Padding(
                     padding: EdgeInsets.symmetric(vertical: 15),
                     child: Divider(),
                   ),
-                  const Text(
-                    'Sjednané úkony:',
-                    style: TextStyle(
-                      fontWeight: FontWeight.bold,
-                      color: Colors.blue,
-                      fontSize: 16,
-                    ),
-                  ),
+                  const Text('Sjednané úkony:', style: TextStyle(fontWeight: FontWeight.bold, color: Colors.blue, fontSize: 16)),
                   const SizedBox(height: 10),
-                  ...validniPozadavky.map(
-                    (c) => Padding(
-                      padding: const EdgeInsets.only(bottom: 6),
-                      child: Row(
-                        crossAxisAlignment: CrossAxisAlignment.start,
-                        children: [
-                          const Text(
-                            '• ',
-                            style: TextStyle(
-                              fontWeight: FontWeight.bold,
-                              color: Colors.blue,
-                            ),
-                          ),
-                          Expanded(
-                            child: Text(
-                              c.text,
-                              style: const TextStyle(fontSize: 15),
-                            ),
-                          ),
-                        ],
-                      ),
+                  ...validniPozadavky.map((c) => Padding(
+                    padding: const EdgeInsets.only(bottom: 6),
+                    child: Row(
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      children: [
+                        const Text('• ', style: TextStyle(fontWeight: FontWeight.bold, color: Colors.blue)),
+                        Expanded(child: Text(c.text, style: const TextStyle(fontSize: 15))),
+                      ],
                     ),
-                  ),
+                  )),
                 ],
               ],
             ),
