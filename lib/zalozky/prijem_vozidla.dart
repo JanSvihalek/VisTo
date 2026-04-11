@@ -10,6 +10,9 @@ import 'package:firebase_auth/firebase_auth.dart';
 import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:firebase_storage/firebase_storage.dart';
 import 'package:intl/intl.dart';
+import 'package:pdf/pdf.dart';
+import 'package:pdf/widgets.dart' as pw;
+import 'package:printing/printing.dart';
 import '../core/constants.dart';
 
 class MainWizardPage extends StatefulWidget {
@@ -33,6 +36,10 @@ class _MainWizardPageState extends State<MainWizardPage> {
   final _adresaController = TextEditingController();
   final _telefonController = TextEditingController();
   final _emailZController = TextEditingController();
+
+  // --- UPRAVENÉ: Proměnné pro defaultní nastavení e-mailu ---
+  bool _odeslatEmail = true;
+  bool _defaultOdeslatEmail = true; // Pamatuje si nastavení uživatele z Firebase
 
   String? _vybranyZakaznikId;
   List<Map<String, dynamic>> _nalezenaVozidla = [];
@@ -85,7 +92,6 @@ class _MainWizardPageState extends State<MainWizardPage> {
 
   final List<TextEditingController> _pozadavkyControllers = [TextEditingController()];
 
-  // --- NOVÉ: Dynamický seznam úkonů ---
   List<String> _rychleUkony = [];
   bool _isLoadingUkony = true;
 
@@ -99,34 +105,39 @@ class _MainWizardPageState extends State<MainWizardPage> {
   void initState() {
     super.initState();
     _generujCisloZakazky();
-    _nactiRychleUkony(); // Zavoláme stažení úkonů při startu
+    _nactiNastaveni(); // Nově načítáme kompletní nastavení
   }
 
-  Future<void> _nactiRychleUkony() async {
+  // --- NOVÉ: Sloučené načítání nastavení z Firebase ---
+  Future<void> _nactiNastaveni() async {
     final user = FirebaseAuth.instance.currentUser;
     if (user != null) {
       try {
         final doc = await FirebaseFirestore.instance.collection('nastaveni_servisu').doc(user.uid).get();
-        if (doc.exists && doc.data()!.containsKey('rychle_ukony')) {
+        if (doc.exists) {
+          final data = doc.data()!;
           if (mounted) {
             setState(() {
-              _rychleUkony = List<String>.from(doc.data()!['rychle_ukony']);
+              // 1. Načtení rychlých úkonů
+              if (data.containsKey('rychle_ukony')) {
+                _rychleUkony = List<String>.from(data['rychle_ukony']);
+              } else {
+                _rychleUkony = ['Výměna oleje a filtrů', 'Kontrola brzd', 'Servis klimatizace', 'Příprava a provedení STK', 'Geometrie kol', 'Pneuservis (přezutí)', 'Diagnostika závad'];
+              }
+
+              // 2. Načtení preference pro odesílání e-mailů
+              if (data.containsKey('default_odesilat_emaily')) {
+                _defaultOdeslatEmail = data['default_odesilat_emaily'] as bool;
+                _odeslatEmail = _defaultOdeslatEmail; // Rovnou to aplikujeme na aktuální zakázku
+              }
+
               _isLoadingUkony = false;
             });
           }
         } else {
-          // Pokud si uživatel ještě žádné nenastavil, dáme tam ty výchozí
           if (mounted) {
             setState(() {
-              _rychleUkony = [
-                'Výměna oleje a filtrů',
-                'Kontrola brzd',
-                'Servis klimatizace',
-                'Příprava a provedení STK',
-                'Geometrie kol',
-                'Pneuservis (přezutí)',
-                'Diagnostika závad'
-              ];
+              _rychleUkony = ['Výměna oleje a filtrů', 'Kontrola brzd', 'Servis klimatizace', 'Příprava a provedení STK', 'Geometrie kol', 'Pneuservis (přezutí)', 'Diagnostika závad'];
               _isLoadingUkony = false;
             });
           }
@@ -508,6 +519,97 @@ class _MainWizardPageState extends State<MainWizardPage> {
     );
   }
 
+  pw.Widget _buildCompactRowPdf(String label1, String value1, String label2, String value2, pw.Font fontReg, pw.Font fontBld) {
+    return pw.Padding(
+      padding: const pw.EdgeInsets.only(bottom: 4),
+      child: pw.Row(
+        children: [
+          pw.Expanded(child: pw.Row(crossAxisAlignment: pw.CrossAxisAlignment.start, children: [pw.Text(label1, style: pw.TextStyle(font: fontReg, fontSize: 10, color: PdfColors.grey700)), pw.SizedBox(width: 4), pw.Expanded(child: pw.Text(value1, style: pw.TextStyle(font: fontBld, fontSize: 11)))])),
+          if (label2.isNotEmpty) pw.Expanded(child: pw.Row(crossAxisAlignment: pw.CrossAxisAlignment.start, children: [pw.Text(label2, style: pw.TextStyle(font: fontReg, fontSize: 10, color: PdfColors.grey700)), pw.SizedBox(width: 4), pw.Expanded(child: pw.Text(value2, style: pw.TextStyle(font: fontBld, fontSize: 11)))]))
+          else pw.Expanded(child: pw.SizedBox()),
+        ],
+      ),
+    );
+  }
+
+  Future<Uint8List> _generateSilentPdf(Map<String, dynamic> data, Map<String, dynamic> stav, Map<String, dynamic> zakaznik, String? podpisUrl) async {
+    final user = FirebaseAuth.instance.currentUser;
+    String hlavickaNazev = 'Fixio';
+    String hlavickaIco = '';
+    if (user != null) {
+      final nastaveniDoc = await FirebaseFirestore.instance.collection('nastaveni_servisu').doc(user.uid).get();
+      if (nastaveniDoc.exists) {
+        hlavickaNazev = nastaveniDoc.data()?['nazev_servisu'] ?? 'Fixio';
+        hlavickaIco = nastaveniDoc.data()?['ico_servisu'] ?? '';
+      }
+    }
+
+    pw.MemoryImage? podpisImage;
+    if (podpisUrl != null) {
+      try {
+        final response = await http.get(Uri.parse(podpisUrl));
+        if (response.statusCode == 200) podpisImage = pw.MemoryImage(response.bodyBytes);
+      } catch (e) { debugPrint("Chyba PDF podpisu: $e"); }
+    }
+
+    final pdf = pw.Document();
+    final fontRegular = await PdfGoogleFonts.robotoRegular();
+    final fontBold = await PdfGoogleFonts.robotoBold();
+
+    String poskozeniPdfText = 'Neuvedeno';
+    if (stav['poskozeni'] is List) { poskozeniPdfText = (stav['poskozeni'] as List).join(', '); } 
+    else if (stav['poskozeni'] != null) { poskozeniPdfText = stav['poskozeni'].toString(); }
+
+    pdf.addPage(
+      pw.MultiPage(
+        pageFormat: PdfPageFormat.a4, margin: const pw.EdgeInsets.all(40),
+        build: (pw.Context context) {
+          return [
+            pw.Header(level: 0, child: pw.Row(mainAxisAlignment: pw.MainAxisAlignment.spaceBetween, children: [
+                  pw.Column(crossAxisAlignment: pw.CrossAxisAlignment.start, children: [
+                      pw.Text(hlavickaNazev, style: pw.TextStyle(font: fontBold, fontSize: 24, color: PdfColors.blue800)),
+                      if (hlavickaIco.isNotEmpty) pw.Text('IČO: $hlavickaIco', style: pw.TextStyle(font: fontRegular, fontSize: 10, color: PdfColors.grey700)),
+                  ]),
+                  pw.Text('Protokol o příjmu', style: pw.TextStyle(font: fontRegular, fontSize: 20, color: PdfColors.grey600)),
+                ])),
+            pw.SizedBox(height: 15),
+            pw.Container(padding: const pw.EdgeInsets.all(10), decoration: pw.BoxDecoration(color: PdfColors.blue50, borderRadius: pw.BorderRadius.circular(8)), child: pw.Column(crossAxisAlignment: pw.CrossAxisAlignment.start, children: [
+                  pw.Text('Údaje o zákazníkovi', style: pw.TextStyle(font: fontBold, fontSize: 12, color: PdfColors.blue800)), pw.SizedBox(height: 5),
+                  _buildCompactRowPdf('Jméno / Firma:', zakaznik['jmeno']?.toString() ?? '-', 'IČO:', zakaznik['ico']?.toString() ?? '-', fontRegular, fontBold),
+                  _buildCompactRowPdf('Adresa:', zakaznik['adresa']?.toString() ?? '-', 'Telefon:', zakaznik['telefon']?.toString() ?? '-', fontRegular, fontBold),
+                  _buildCompactRowPdf('E-mail:', zakaznik['email']?.toString() ?? '-', '', '', fontRegular, fontBold),
+                ])),
+            pw.SizedBox(height: 15),
+            pw.Container(padding: const pw.EdgeInsets.all(10), decoration: pw.BoxDecoration(color: PdfColors.grey100, borderRadius: pw.BorderRadius.circular(8)), child: pw.Column(crossAxisAlignment: pw.CrossAxisAlignment.start, children: [
+                  pw.Text('Údaje o vozidle', style: pw.TextStyle(font: fontBold, fontSize: 12, color: PdfColors.grey800)), pw.SizedBox(height: 5),
+                  _buildCompactRowPdf('Zakázka č.:', data['cislo_zakazky'].toString(), 'SPZ:', data['spz'].toString(), fontRegular, fontBold),
+                  _buildCompactRowPdf('Značka/Model:', '${data['znacka'] ?? '-'} ${data['model'] ?? ''}', 'VIN:', data['vin']?.toString() ?? '-', fontRegular, fontBold),
+                ])),
+            pw.SizedBox(height: 20),
+            pw.Text('Stav vozidla při příjmu', style: pw.TextStyle(font: fontBold, fontSize: 14)), pw.SizedBox(height: 8),
+            _buildCompactRowPdf('Tachometr:', '${stav['tachometr']} km', 'Palivo:', '${stav['nadrz']} %', fontRegular, fontBold),
+            _buildCompactRowPdf('Poškození:', poskozeniPdfText, '', '', fontRegular, fontBold),
+            if (data['poznamky'] != null && data['poznamky'].toString().isNotEmpty) ...[
+              pw.SizedBox(height: 10), pw.Text('Poznámky:', style: pw.TextStyle(font: fontBold, fontSize: 12)), pw.Text(data['poznamky'].toString(), style: pw.TextStyle(font: fontRegular, fontSize: 11)),
+            ],
+            pw.Spacer(),
+            if (podpisImage != null) ...[
+              pw.Divider(color: PdfColors.grey300), pw.SizedBox(height: 10),
+              pw.Row(mainAxisAlignment: pw.MainAxisAlignment.spaceBetween, crossAxisAlignment: pw.CrossAxisAlignment.end, children: [
+                  pw.Column(crossAxisAlignment: pw.CrossAxisAlignment.start, children: [
+                      pw.Text('Podpis zákazníka:', style: pw.TextStyle(font: fontBold, fontSize: 12)), pw.SizedBox(height: 5),
+                      pw.Image(podpisImage, width: 150, height: 60), pw.Container(width: 150, height: 1, color: PdfColors.black),
+                  ]),
+                  pw.Text('Vygenerováno aplikací Fixio', style: pw.TextStyle(font: fontRegular, fontSize: 10, color: PdfColors.grey500)),
+              ]),
+            ]
+          ];
+        },
+      ),
+    );
+    return pdf.save();
+  }
+
   Future<void> _startDirectUpload() async {
     setState(() => _isUploading = true);
     try {
@@ -613,49 +715,89 @@ class _MainWizardPageState extends State<MainWizardPage> {
         .where((text) => text.isNotEmpty)
         .toList();
 
+    Map<String, dynamic> zakazkaData = {
+      'servis_id': user.uid,
+      'cislo_zakazky': zakazkaId,
+      'spz': spz,
+      'vin': _vinController.text.trim().toUpperCase(),
+      'znacka': _znackaController.text.trim(),
+      'model': _modelController.text.trim(),
+      'rok_vyroby': _rokVyrobyController.text.trim(),
+      'motorizace': _motorizaceController.text.trim(),
+      'palivo_typ': _vybranePalivo,
+      'prevodovka': _vybranaPrevodovka,
+      'stav_zakazky': 'Přijato',
+      'zakaznik': {
+        'id_zakaznika': zakaznikId,
+        'jmeno': _jmenoController.text.trim(),
+        'ico': _icoController.text.trim(),
+        'adresa': _adresaController.text.trim(),
+        'telefon': _telefonController.text.trim(),
+        'email': _emailZController.text.trim(),
+      },
+      'stav_vozidla': {
+        'tachometr': _tachometrController.text.trim(),
+        'nadrz': _stavNadrze,
+        'poskozeni': _vybranePoskozeni.isEmpty
+            ? ['Neuvedeno']
+            : _vybranePoskozeni,
+        'stk_mesic': _stkMesicController.text.trim(),
+        'stk_rok': _stkRokController.text.trim(),
+        'pneu_lp': _pneuLPController.text.trim(),
+        'pneu_pp': _pneuPPController.text.trim(),
+        'pneu_lz': _pneuLZController.text.trim(),
+        'pneu_pz': _pneuPZController.text.trim(),
+      },
+      'pozadavky_zakaznika': pozadovaneUkony,
+      'poznamky': _poskozeniController.text.trim(),
+      'fotografie_urls': imageUrlsByCategory,
+      'podpis_url': podpisUrl,
+      'provedene_prace': [],
+      'cas_prijeti': FieldValue.serverTimestamp(),
+    };
+
     await FirebaseFirestore.instance
         .collection('zakazky')
         .doc('${user.uid}_$zakazkaId')
-        .set({
-          'servis_id': user.uid,
-          'cislo_zakazky': zakazkaId,
-          'spz': spz,
-          'vin': _vinController.text.trim().toUpperCase(),
-          'znacka': _znackaController.text.trim(),
-          'model': _modelController.text.trim(),
-          'rok_vyroby': _rokVyrobyController.text.trim(),
-          'motorizace': _motorizaceController.text.trim(),
-          'palivo_typ': _vybranePalivo,
-          'prevodovka': _vybranaPrevodovka,
-          'stav_zakazky': 'Přijato',
-          'zakaznik': {
-            'id_zakaznika': zakaznikId,
-            'jmeno': _jmenoController.text.trim(),
-            'ico': _icoController.text.trim(),
-            'adresa': _adresaController.text.trim(),
-            'telefon': _telefonController.text.trim(),
-            'email': _emailZController.text.trim(),
-          },
-          'stav_vozidla': {
-            'tachometr': _tachometrController.text.trim(),
-            'nadrz': _stavNadrze,
-            'poskozeni': _vybranePoskozeni.isEmpty
-                ? ['Neuvedeno']
-                : _vybranePoskozeni,
-            'stk_mesic': _stkMesicController.text.trim(),
-            'stk_rok': _stkRokController.text.trim(),
-            'pneu_lp': _pneuLPController.text.trim(),
-            'pneu_pp': _pneuPPController.text.trim(),
-            'pneu_lz': _pneuLZController.text.trim(),
-            'pneu_pz': _pneuPZController.text.trim(),
-          },
-          'pozadavky_zakaznika': pozadovaneUkony,
-          'poznamky': _poskozeniController.text.trim(),
-          'fotografie_urls': imageUrlsByCategory,
-          'podpis_url': podpisUrl,
-          'provedene_prace': [],
-          'cas_prijeti': FieldValue.serverTimestamp(),
-        });
+        .set(zakazkaData);
+
+    final emailZakanika = _emailZController.text.trim();
+    
+    if (_odeslatEmail && emailZakanika.isNotEmpty && emailZakanika.contains('@')) {
+      
+      String odesilatelJmeno = 'Fixio Servis';
+      final docNastaveni = await FirebaseFirestore.instance.collection('nastaveni_servisu').doc(user.uid).get();
+      if (docNastaveni.exists) {
+        odesilatelJmeno = docNastaveni.data()?['nazev_servisu'] ?? 'Fixio Servis';
+      }
+
+      final pdfBytes = await _generateSilentPdf(zakazkaData, zakazkaData['stav_vozidla'], zakazkaData['zakaznik'], podpisUrl);
+
+      Reference pdfRef = FirebaseStorage.instance.ref().child('servisy/${user.uid}/zakazky/$zakazkaId/protokol_$zakazkaId.pdf');
+      await pdfRef.putData(pdfBytes, SettableMetadata(contentType: 'application/pdf'));
+      String pdfDownloadUrl = await pdfRef.getDownloadURL();
+
+      await FirebaseFirestore.instance.collection('maily').add({
+        'to': emailZakanika,
+        'from': '$odesilatelJmeno (přes Fixio) <jan.svihalek00@gmail.com>', 
+        'replyTo': user.email,
+        'message': {
+          'subject': 'Protokol o přijetí vozidla $spz - $odesilatelJmeno',
+          'html': '''
+            <div style="font-family: Arial, sans-serif; color: #333; max-width: 600px; margin: 0 auto; border: 1px solid #eee; padding: 20px; border-radius: 10px;">
+              <h2 style="color: #2196F3; border-bottom: 2px solid #2196F3; padding-bottom: 10px;">Dobrý den,</h2>
+              <p>v příloze Vám zasíláme odkaz na podepsaný protokol o přijetí Vašeho vozidla <b>$spz</b> do našeho servisu.</p>
+              <div style="text-align: center; margin: 30px 0;">
+                <a href="$pdfDownloadUrl" style="background-color: #2196F3; color: white; padding: 15px 30px; text-decoration: none; border-radius: 5px; font-weight: bold; font-size: 16px; display: inline-block;">Zobrazit a stáhnout protokol</a>
+              </div>
+              <p>V případě jakýchkoliv dotazů na tento e-mail jednoduše odpovězte, zpráva nám bude doručena.</p>
+              <hr style="border: 0; border-top: 1px solid #eee; margin: 20px 0;">
+              <p style="font-size: 12px; color: #777;">Tento e-mail byl vygenerován automaticky systémem <b>Fixio</b> pro servis <b>$odesilatelJmeno</b>.</p>
+            </div>
+          ''',
+        }
+      });
+    }
   }
 
   void _resetForm() {
@@ -694,6 +836,9 @@ class _MainWizardPageState extends State<MainWizardPage> {
     _pozadavkyControllers.add(TextEditingController());
 
     _generujCisloZakazky();
+    
+    // --- OPRAVENÉ: Reset zaškrtávátka zpět na uživatelův default z Firebase ---
+    _odeslatEmail = _defaultOdeslatEmail;
 
     setState(() => _currentPage = 0);
     _pageController.jumpToPage(0);
@@ -823,7 +968,7 @@ class _MainWizardPageState extends State<MainWizardPage> {
                       CircularProgressIndicator(),
                       SizedBox(height: 20),
                       Text(
-                        'Odesílám zakázku...',
+                        'Odesílám zakázku a protokol...',
                         style: TextStyle(fontWeight: FontWeight.bold),
                       ),
                     ],
@@ -1138,6 +1283,25 @@ class _MainWizardPageState extends State<MainWizardPage> {
         ),
         const SizedBox(height: 20),
         _buildInput('E-mail', Icons.email, _emailZController, isDark),
+        
+        // --- UPRAVENÉ: Checkbox se chová podle defaultního nastavení ---
+        const SizedBox(height: 10),
+        Row(
+          children: [
+            Checkbox(
+              value: _odeslatEmail,
+              onChanged: (val) => setState(() => _odeslatEmail = val ?? true),
+              activeColor: Colors.blue,
+            ),
+            const Expanded(
+              child: Text(
+                'Odeslat zákazníkovi protokol e-mailem (pokud je vyplněn)',
+                style: TextStyle(color: Colors.grey),
+              ),
+            ),
+          ],
+        ),
+        // ------------------------------------------
       ],
     ),
   );

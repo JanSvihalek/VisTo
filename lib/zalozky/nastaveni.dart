@@ -22,6 +22,9 @@ class _SettingsPageState extends State<SettingsPage> {
   final _registraceController = TextEditingController();
 
   bool _jePlatceDph = false;
+  // --- NOVÉ: Proměnná pro nastavení e-mailů v menu ---
+  bool _defaultOdeslatEmaily = true; 
+
   bool _isLoading = true;
   bool _isSaving = false;
   bool _isUploadingLogo = false;
@@ -53,12 +56,16 @@ class _SettingsPageState extends State<SettingsPage> {
         _registraceController.text = data['registrace_servisu'] ?? '';
         _jePlatceDph = data['platce_dph'] ?? false;
         _logoUrl = data['logo_url']; // Načtení případného loga
+        
+        // --- NOVÉ: Načtení preference pro e-maily ---
+        if (data.containsKey('default_odesilat_emaily')) {
+          _defaultOdeslatEmaily = data['default_odesilat_emaily'] as bool;
+        }
       }
     }
     if (mounted) setState(() => _isLoading = false);
   }
 
-  // --- NOVÉ: Funkce pro nahrání loga ---
   Future<void> _uploadLogo() async {
     try {
       final XFile? image = await _picker.pickImage(
@@ -125,6 +132,10 @@ class _SettingsPageState extends State<SettingsPage> {
               'banka_servisu': _bankaController.text.trim(),
               'registrace_servisu': _registraceController.text.trim(),
               'platce_dph': _jePlatceDph,
+              
+              // --- NOVÉ: Uložení preference do databáze ---
+              'default_odesilat_emaily': _defaultOdeslatEmaily,
+              
             }, SetOptions(merge: true));
         ScaffoldMessenger.of(context).showSnackBar(
           const SnackBar(
@@ -157,7 +168,6 @@ class _SettingsPageState extends State<SettingsPage> {
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
-          // --- NOVÉ: Správa loga ---
           Center(
             child: Column(
               children: [
@@ -279,6 +289,34 @@ class _SettingsPageState extends State<SettingsPage> {
           ),
 
           const Divider(height: 40),
+          
+          // --- NOVÉ: Přepínač pro e-maily v nastavení ---
+          Container(
+            padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 5),
+            decoration: BoxDecoration(
+              color: isDark ? const Color(0xFF1E1E1E) : Colors.white,
+              borderRadius: BorderRadius.circular(15),
+              border: Border.all(
+                color: isDark ? Colors.grey[800]! : Colors.grey[300]!,
+              ),
+            ),
+            child: SwitchListTile(
+              title: const Text(
+                'Zasílat protokoly e-mailem',
+                style: TextStyle(fontWeight: FontWeight.bold),
+              ),
+              subtitle: const Text(
+                'Určuje, zda bude po přijetí vozu defaultně zaškrtnuto odeslání e-mailu zákazníkovi.',
+                style: TextStyle(fontSize: 12),
+              ),
+              value: _defaultOdeslatEmaily,
+              activeColor: Colors.blue,
+              onChanged: (val) => setState(() => _defaultOdeslatEmaily = val),
+            ),
+          ),
+          const SizedBox(height: 20),
+          // ------------------------------------------
+
           _buildSettingsInput(
             'Hodinová sazba bez DPH (Kč)',
             Icons.attach_money,

@@ -22,6 +22,9 @@ class _SetupWizardScreenState extends State<SetupWizardScreen> {
   final _nazevController = TextEditingController();
   final _icoController = TextEditingController();
   final _registraceController = TextEditingController();
+  
+  // --- NOVÉ: Přepínač pro defaultní odesílání e-mailů ---
+  bool _defaultOdeslatEmaily = true;
 
   // KROK 2: Fakturace a Ceny
   final _sazbaController = TextEditingController();
@@ -120,6 +123,10 @@ class _SetupWizardScreenState extends State<SetupWizardScreen> {
           'nazev_servisu': _nazevController.text.trim(),
           'ico_servisu': _icoController.text.trim(),
           'registrace_servisu': _registraceController.text.trim(),
+          
+          // --- NOVÉ: Uložení preference do databáze ---
+          'default_odesilat_emaily': _defaultOdeslatEmaily,
+          
           'hodinova_sazba': double.tryParse(_sazbaController.text.replaceAll(',', '.')) ?? 0.0,
           'platce_dph': _jePlatceDph,
           'dic_servisu': _dicController.text.trim(),
@@ -298,6 +305,30 @@ class _SetupWizardScreenState extends State<SetupWizardScreen> {
               border: OutlineInputBorder(borderRadius: BorderRadius.circular(15)),
             ),
           ),
+
+          // --- NOVÉ: Otázka na e-maily ---
+          const SizedBox(height: 30),
+          const Divider(),
+          const SizedBox(height: 20),
+          const Text('Komunikace se zákazníky', style: TextStyle(fontSize: 20, fontWeight: FontWeight.bold)),
+          const SizedBox(height: 10),
+          Container(
+            padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 5),
+            decoration: BoxDecoration(
+              color: isDark ? const Color(0xFF1E1E1E) : Colors.white, 
+              borderRadius: BorderRadius.circular(15), 
+              border: Border.all(color: isDark ? Colors.grey[800]! : Colors.grey[300]!)
+            ),
+            child: SwitchListTile(
+              title: const Text('Zasílat protokoly e-mailem', style: TextStyle(fontWeight: FontWeight.bold)),
+              subtitle: const Text('Zákazníkům bude po příjmu nebo vydání automaticky odeslán PDF protokol (lze změnit u každé zakázky).', style: TextStyle(fontSize: 12)),
+              value: _defaultOdeslatEmaily,
+              activeColor: Colors.blue,
+              onChanged: (val) => setState(() => _defaultOdeslatEmaily = val),
+            ),
+          ),
+          // ------------------------------------
+
         ],
       ),
     );
