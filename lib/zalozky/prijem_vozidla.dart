@@ -849,7 +849,7 @@ class _MainWizardPageState extends State<MainWizardPage> {
               child: Padding(
                 padding: EdgeInsets.only(top: 8.0),
                 child: Text(
-                  'Údaje o vozidle',
+                  'Příjem vozidla',
                   style: TextStyle(fontSize: 32, fontWeight: FontWeight.bold),
                 ),
               ),

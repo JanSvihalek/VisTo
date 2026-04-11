@@ -45,8 +45,9 @@ class _MainScreenState extends State<MainScreen> {
               ),
               const SizedBox(width: 4),
               Text(
-                'VisTo',
-                style: TextStyle(
+  'Fixio',
+  style: TextStyle(
+// ...
                   fontWeight: FontWeight.w900,
                   color: isDark ? Colors.white : Colors.black87,
                   letterSpacing: -0.5,

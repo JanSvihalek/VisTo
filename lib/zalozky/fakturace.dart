@@ -780,7 +780,7 @@ class _FakturacePageState extends State<FakturacePage> {
             pw.SizedBox(height: 5),
             pw.Center(
               child: pw.Text(
-                'Vygenerováno systémem VisTo.',
+                'Vygenerováno systémem Fixio.',
                 style: pw.TextStyle(
                   font: fontRegular,
                   fontSize: 8,

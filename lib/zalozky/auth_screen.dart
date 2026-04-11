@@ -162,7 +162,7 @@ class _AuthScreenState extends State<AuthScreen> {
                 ),
                 const SizedBox(height: 15),
                 Text(
-                  'VisTo',
+                  'Fixio',
                   textAlign: TextAlign.center,
                   style: TextStyle(
                     fontSize: 40,

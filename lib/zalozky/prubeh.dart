@@ -1001,8 +1001,9 @@ class ActiveJobScreen extends StatelessWidget {
                     ],
                   ),
                   pw.Text(
-                    'Vygenerováno aplikací Visto',
-                    style: pw.TextStyle(
+  'Vygenerováno aplikací Fixio', // <-- Zde
+  style: pw.TextStyle(
+// ...
                       font: fontRegular,
                       fontSize: 10,
                       color: PdfColors.grey500,
@@ -1013,7 +1014,7 @@ class ActiveJobScreen extends StatelessWidget {
             ] else ...[
               pw.Center(
                 child: pw.Text(
-                  'Vygenerováno aplikací Visto',
+                  'Vygenerováno aplikací Fixio',
                   style: pw.TextStyle(
                     font: fontRegular,
                     fontSize: 10,
