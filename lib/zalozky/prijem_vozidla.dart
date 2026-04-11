@@ -3,6 +3,7 @@ import 'package:flutter/foundation.dart';
 import 'package:image_picker/image_picker.dart';
 import 'package:google_mlkit_text_recognition/google_mlkit_text_recognition.dart';
 import 'dart:io';
+import 'dart:typed_data'; // <--- PŘIDANÝ CHYBĚJÍCÍ IMPORT PRO PDF
 import 'package:http/http.dart' as http;
 import 'dart:convert';
 import 'package:signature/signature.dart';
@@ -37,9 +38,8 @@ class _MainWizardPageState extends State<MainWizardPage> {
   final _telefonController = TextEditingController();
   final _emailZController = TextEditingController();
 
-  // --- UPRAVENÉ: Proměnné pro defaultní nastavení e-mailu ---
   bool _odeslatEmail = true;
-  bool _defaultOdeslatEmail = true; // Pamatuje si nastavení uživatele z Firebase
+  bool _defaultOdeslatEmail = true;
 
   String? _vybranyZakaznikId;
   List<Map<String, dynamic>> _nalezenaVozidla = [];
@@ -105,10 +105,9 @@ class _MainWizardPageState extends State<MainWizardPage> {
   void initState() {
     super.initState();
     _generujCisloZakazky();
-    _nactiNastaveni(); // Nově načítáme kompletní nastavení
+    _nactiNastaveni(); 
   }
 
-  // --- NOVÉ: Sloučené načítání nastavení z Firebase ---
   Future<void> _nactiNastaveni() async {
     final user = FirebaseAuth.instance.currentUser;
     if (user != null) {
@@ -118,17 +117,15 @@ class _MainWizardPageState extends State<MainWizardPage> {
           final data = doc.data()!;
           if (mounted) {
             setState(() {
-              // 1. Načtení rychlých úkonů
               if (data.containsKey('rychle_ukony')) {
                 _rychleUkony = List<String>.from(data['rychle_ukony']);
               } else {
                 _rychleUkony = ['Výměna oleje a filtrů', 'Kontrola brzd', 'Servis klimatizace', 'Příprava a provedení STK', 'Geometrie kol', 'Pneuservis (přezutí)', 'Diagnostika závad'];
               }
 
-              // 2. Načtení preference pro odesílání e-mailů
               if (data.containsKey('default_odesilat_emaily')) {
                 _defaultOdeslatEmail = data['default_odesilat_emaily'] as bool;
-                _odeslatEmail = _defaultOdeslatEmail; // Rovnou to aplikujeme na aktuální zakázku
+                _odeslatEmail = _defaultOdeslatEmail; 
               }
 
               _isLoadingUkony = false;
@@ -837,7 +834,6 @@ class _MainWizardPageState extends State<MainWizardPage> {
 
     _generujCisloZakazky();
     
-    // --- OPRAVENÉ: Reset zaškrtávátka zpět na uživatelův default z Firebase ---
     _odeslatEmail = _defaultOdeslatEmail;
 
     setState(() => _currentPage = 0);
@@ -1283,25 +1279,6 @@ class _MainWizardPageState extends State<MainWizardPage> {
         ),
         const SizedBox(height: 20),
         _buildInput('E-mail', Icons.email, _emailZController, isDark),
-        
-        // --- UPRAVENÉ: Checkbox se chová podle defaultního nastavení ---
-        const SizedBox(height: 10),
-        Row(
-          children: [
-            Checkbox(
-              value: _odeslatEmail,
-              onChanged: (val) => setState(() => _odeslatEmail = val ?? true),
-              activeColor: Colors.blue,
-            ),
-            const Expanded(
-              child: Text(
-                'Odeslat zákazníkovi protokol e-mailem (pokud je vyplněn)',
-                style: TextStyle(color: Colors.grey),
-              ),
-            ),
-          ],
-        ),
-        // ------------------------------------------
       ],
     ),
   );
@@ -1888,6 +1865,38 @@ class _MainWizardPageState extends State<MainWizardPage> {
             ),
           ),
           const SizedBox(height: 30),
+
+          // --- PŘESUNUTO A VYLEPŠENO: Zaškrtávátko pro e-mail na posledním kroku ---
+          Container(
+            decoration: BoxDecoration(
+              color: isDark ? const Color(0xFF1E1E1E) : Colors.blue.withOpacity(0.05),
+              borderRadius: BorderRadius.circular(15),
+              border: Border.all(color: Colors.blue.withOpacity(0.3)),
+            ),
+            child: CheckboxListTile(
+              title: const Text(
+                'Odeslat kopii protokolu na e-mail',
+                style: TextStyle(fontWeight: FontWeight.bold),
+              ),
+              subtitle: Text(
+                _emailZController.text.isEmpty
+                    ? 'U zákazníka (krok 2) není vyplněn žádný e-mail.'
+                    : 'Bude odesláno na: ${_emailZController.text}',
+                style: TextStyle(
+                  color: _emailZController.text.isEmpty ? Colors.red : Colors.grey,
+                  fontSize: 13,
+                ),
+              ),
+              value: _odeslatEmail,
+              activeColor: Colors.blue,
+              checkColor: Colors.white,
+              onChanged: (val) => setState(() => _odeslatEmail = val ?? true),
+              controlAffinity: ListTileControlAffinity.leading,
+            ),
+          ),
+          const SizedBox(height: 30),
+          // ------------------------------------------------------
+
           const Text(
             'Zákazník svým podpisem stvrzuje správnost výše uvedených údajů a souhlasí se stavem vozidla při převzetí do servisu.',
             style: TextStyle(color: Colors.grey, fontSize: 14),
