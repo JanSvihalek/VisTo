@@ -6,6 +6,7 @@ import 'package:pdf/pdf.dart';
 import 'package:pdf/widgets.dart' as pw;
 import 'package:printing/printing.dart';
 import 'dart:typed_data';
+import '../core/pdf_generator.dart';
 
 class FakturacePage extends StatefulWidget {
   const FakturacePage({super.key});

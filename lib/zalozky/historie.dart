@@ -9,6 +9,7 @@ import 'dart:html' as html;
 import 'package:http/http.dart' as http;
 import 'dart:typed_data';
 import '../core/constants.dart';
+import '../core/pdf_generator.dart';
 
 class HistoryPage extends StatefulWidget {
   const HistoryPage({super.key});
