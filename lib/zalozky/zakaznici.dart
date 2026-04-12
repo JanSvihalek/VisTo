@@ -2,8 +2,12 @@ import 'package:flutter/material.dart';
 import 'package:firebase_auth/firebase_auth.dart';
 import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:intl/intl.dart';
+import 'package:pdf/pdf.dart';
+import 'package:printing/printing.dart';
 import '../core/constants.dart';
-import 'vozidla.dart'; // --- NOVÝ IMPORT PRO PROPOJENÍ NA KARTU VOZU ---
+import 'vozidla.dart';
+import '../core/pdf_generator.dart'; // NÁŠ NOVÝ IMPORT
+import 'dart:html' as html;
 
 class ZakazniciPage extends StatefulWidget {
   const ZakazniciPage({super.key});
@@ -310,7 +314,6 @@ class ZakaznikDetailScreen extends StatelessWidget {
                     return Card(
                       color: isDark ? const Color(0xFF1E1E1E) : Colors.grey[50],
                       margin: const EdgeInsets.only(bottom: 10),
-                      // --- ZDE JE PŘIDÁN PROKLIK NA DETAIL VOZIDLA ---
                       child: InkWell(
                         borderRadius: BorderRadius.circular(10),
                         onTap: () {
@@ -394,6 +397,8 @@ class ZakaznikDetailScreen extends StatelessWidget {
                   children: docs.map((doc) {
                     final zakazka = doc.data() as Map<String, dynamic>;
                     final stav = zakazka['stav_zakazky'] ?? 'Přijato';
+                    final zpusobUkonceni = zakazka['zpusob_ukonceni'] ?? '';
+                    final bool maFakturu = zpusobUkonceni == 'faktura';
 
                     double celkovaCenaSDph = 0.0;
                     final prace =
@@ -432,29 +437,118 @@ class ZakaznikDetailScreen extends StatelessWidget {
                                     fontSize: 16,
                                   ),
                                 ),
-                                Container(
-                                  padding: const EdgeInsets.symmetric(
-                                    horizontal: 8,
-                                    vertical: 2,
-                                  ),
-                                  decoration: BoxDecoration(
-                                    color: getStatusColor(
-                                      stav,
-                                    ).withOpacity(0.1),
-                                    borderRadius: BorderRadius.circular(8),
-                                    border: Border.all(
-                                      color: getStatusColor(stav),
-                                      width: 0.5,
+                                Row(
+                                  mainAxisSize: MainAxisSize.min,
+                                  children: [
+                                    if (maFakturu)
+                                      IconButton(
+                                        icon: const Icon(
+                                          Icons.receipt_long,
+                                          color: Colors.green,
+                                          size: 24,
+                                        ),
+                                        padding: EdgeInsets.zero,
+                                        constraints: const BoxConstraints(),
+                                        onPressed: () async {
+                                          final user =
+                                              FirebaseAuth.instance.currentUser;
+                                          final docNast =
+                                              await FirebaseFirestore.instance
+                                                  .collection(
+                                                    'nastaveni_servisu',
+                                                  )
+                                                  .doc(user!.uid)
+                                                  .get();
+                                          final pdfBytes =
+                                              await GlobalPdfGenerator.generateDocument(
+                                                data: zakazka,
+                                                servisNazev:
+                                                    docNast
+                                                        .data()?['nazev_servisu'] ??
+                                                    'Servis',
+                                                servisIco:
+                                                    docNast
+                                                        .data()?['ico_servisu'] ??
+                                                    '',
+                                                typ: PdfTyp.faktura,
+                                              );
+
+                                          Navigator.push(
+                                            context,
+                                            MaterialPageRoute(
+                                              builder: (context) => Scaffold(
+                                                appBar: AppBar(
+                                                  title: const Text(
+                                                    'Náhled faktury',
+                                                  ),
+                                                ),
+                                                body: PdfPreview(
+                                                  build: (format) => pdfBytes,
+                                                  allowSharing: true,
+                                                  allowPrinting: true,
+                                                  canChangeOrientation: false,
+                                                  canChangePageFormat: false,
+                                                ),
+                                              ),
+                                            ),
+                                          );
+                                        },
+                                        tooltip: 'Zobrazit fakturu',
+                                      ),
+                                    const SizedBox(width: 10),
+                                    IconButton(
+                                      icon: const Icon(
+                                        Icons.picture_as_pdf,
+                                        color: Colors.redAccent,
+                                        size: 24,
+                                      ),
+                                      padding: EdgeInsets.zero,
+                                      constraints: const BoxConstraints(),
+                                      onPressed: () async {
+                                        final user =
+                                            FirebaseAuth.instance.currentUser;
+                                        final docNast = await FirebaseFirestore
+                                            .instance
+                                            .collection('nastaveni_servisu')
+                                            .doc(user!.uid)
+                                            .get();
+                                        final pdfBytes =
+                                            await GlobalPdfGenerator.generateDocument(
+                                              data: zakazka,
+                                              servisNazev:
+                                                  docNast
+                                                      .data()?['nazev_servisu'] ??
+                                                  'Servis',
+                                              servisIco:
+                                                  docNast
+                                                      .data()?['ico_servisu'] ??
+                                                  '',
+                                              typ: PdfTyp.protokol,
+                                            );
+
+                                        Navigator.push(
+                                          context,
+                                          MaterialPageRoute(
+                                            builder: (context) => Scaffold(
+                                              appBar: AppBar(
+                                                title: const Text(
+                                                  'Náhled protokolu',
+                                                ),
+                                              ),
+                                              body: PdfPreview(
+                                                build: (format) => pdfBytes,
+                                                allowSharing: true,
+                                                allowPrinting: true,
+                                                canChangeOrientation: false,
+                                                canChangePageFormat: false,
+                                              ),
+                                            ),
+                                          ),
+                                        );
+                                      },
+                                      tooltip: 'Protokol o opravě',
                                     ),
-                                  ),
-                                  child: Text(
-                                    stav,
-                                    style: TextStyle(
-                                      color: getStatusColor(stav),
-                                      fontSize: 10,
-                                      fontWeight: FontWeight.bold,
-                                    ),
-                                  ),
+                                  ],
                                 ),
                               ],
                             ),
@@ -491,7 +585,6 @@ class ZakaznikDetailScreen extends StatelessWidget {
                 );
               },
             ),
-            const SizedBox(height: 40),
           ],
         ),
       ),

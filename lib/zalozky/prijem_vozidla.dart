@@ -15,6 +15,7 @@ import 'package:pdf/pdf.dart';
 import 'package:pdf/widgets.dart' as pw;
 import 'package:printing/printing.dart';
 import '../core/constants.dart';
+import '../core/pdf_generator.dart';
 
 class MainWizardPage extends StatefulWidget {
   const MainWizardPage({super.key});
@@ -122,7 +123,6 @@ class _MainWizardPageState extends State<MainWizardPage> {
 
   Future<void> _nactiDatabaziZnacek() async {
     try {
-      // --- ZDE OPRAVENO NA 'znacka' ---
       final snapshot = await FirebaseFirestore.instance
           .collection('znacka')
           .get();
@@ -130,7 +130,6 @@ class _MainWizardPageState extends State<MainWizardPage> {
       for (var doc in snapshot.docs) {
         final data = doc.data();
         final nazev = data['nazev']?.toString() ?? doc.id;
-        // --- ZDE OPRAVENO NA 'model' ---
         final modely = List<String>.from(data['model'] ?? []);
         nacteno[nazev] = modely;
       }
@@ -237,7 +236,8 @@ class _MainWizardPageState extends State<MainWizardPage> {
       }
 
       final todayPrefix = DateFormat('yyMMdd').format(DateTime.now());
-      final prefix = '$prefixBase-$todayPrefix-';
+      // Odstraněny pomlčky pro čistší formát
+      final prefix = '$prefixBase$todayPrefix';
 
       final querySnapshot = await FirebaseFirestore.instance
           .collection('zakazky')
@@ -270,7 +270,7 @@ class _MainWizardPageState extends State<MainWizardPage> {
       if (mounted) {
         final todayPrefix = DateFormat('yyMMdd').format(DateTime.now());
         setState(() {
-          _zakazkaController.text = '$prefixBase-$todayPrefix-0001';
+          _zakazkaController.text = '$prefixBase${todayPrefix}0001';
         });
       }
     } finally {
@@ -352,6 +352,11 @@ class _MainWizardPageState extends State<MainWizardPage> {
       _vinController.text = vozidloData['vin']?.toString() ?? '';
       _rokVyrobyController.text = vozidloData['rok_vyroby']?.toString() ?? '';
       _motorizaceController.text = vozidloData['motorizace']?.toString() ?? '';
+
+      // Předvyplnění tachometru a STK z poslední návštěvy
+      _tachometrController.text = vozidloData['tachometr']?.toString() ?? '';
+      _stkMesicController.text = vozidloData['stk_mesic']?.toString() ?? '';
+      _stkRokController.text = vozidloData['stk_rok']?.toString() ?? '';
 
       if (vozidloData['palivo'] != null &&
           _moznostiPaliva.contains(vozidloData['palivo'])) {
@@ -670,322 +675,6 @@ class _MainWizardPageState extends State<MainWizardPage> {
     );
   }
 
-  pw.Widget _buildCompactRowPdf(
-    String label1,
-    String value1,
-    String label2,
-    String value2,
-    pw.Font fontReg,
-    pw.Font fontBld,
-  ) {
-    return pw.Padding(
-      padding: const pw.EdgeInsets.only(bottom: 4),
-      child: pw.Row(
-        children: [
-          pw.Expanded(
-            child: pw.Row(
-              crossAxisAlignment: pw.CrossAxisAlignment.start,
-              children: [
-                pw.Text(
-                  label1,
-                  style: pw.TextStyle(
-                    font: fontReg,
-                    fontSize: 10,
-                    color: PdfColors.grey700,
-                  ),
-                ),
-                pw.SizedBox(width: 4),
-                pw.Expanded(
-                  child: pw.Text(
-                    value1,
-                    style: pw.TextStyle(font: fontBld, fontSize: 11),
-                  ),
-                ),
-              ],
-            ),
-          ),
-          if (label2.isNotEmpty)
-            pw.Expanded(
-              child: pw.Row(
-                crossAxisAlignment: pw.CrossAxisAlignment.start,
-                children: [
-                  pw.Text(
-                    label2,
-                    style: pw.TextStyle(
-                      font: fontReg,
-                      fontSize: 10,
-                      color: PdfColors.grey700,
-                    ),
-                  ),
-                  pw.SizedBox(width: 4),
-                  pw.Expanded(
-                    child: pw.Text(
-                      value2,
-                      style: pw.TextStyle(font: fontBld, fontSize: 11),
-                    ),
-                  ),
-                ],
-              ),
-            )
-          else
-            pw.Expanded(child: pw.SizedBox()),
-        ],
-      ),
-    );
-  }
-
-  Future<Uint8List> _generateSilentPdf(
-    Map<String, dynamic> data,
-    Map<String, dynamic> stav,
-    Map<String, dynamic> zakaznik,
-    String? podpisUrl,
-  ) async {
-    final user = FirebaseAuth.instance.currentUser;
-    String hlavickaNazev = 'Torkis';
-    String hlavickaIco = '';
-    if (user != null) {
-      final nastaveniDoc = await FirebaseFirestore.instance
-          .collection('nastaveni_servisu')
-          .doc(user.uid)
-          .get();
-      if (nastaveniDoc.exists) {
-        hlavickaNazev = nastaveniDoc.data()?['nazev_servisu'] ?? 'Fixio';
-        hlavickaIco = nastaveniDoc.data()?['ico_servisu'] ?? '';
-      }
-    }
-
-    pw.MemoryImage? podpisImage;
-    if (podpisUrl != null) {
-      try {
-        final response = await http.get(Uri.parse(podpisUrl));
-        if (response.statusCode == 200)
-          podpisImage = pw.MemoryImage(response.bodyBytes);
-      } catch (e) {
-        debugPrint("Chyba PDF podpisu: $e");
-      }
-    }
-
-    final pdf = pw.Document();
-    final fontRegular = await PdfGoogleFonts.robotoRegular();
-    final fontBold = await PdfGoogleFonts.robotoBold();
-
-    String poskozeniPdfText = 'Neuvedeno';
-    if (stav['poskozeni'] is List) {
-      poskozeniPdfText = (stav['poskozeni'] as List).join(', ');
-    } else if (stav['poskozeni'] != null) {
-      poskozeniPdfText = stav['poskozeni'].toString();
-    }
-
-    String ulice = zakaznik['ulice']?.toString() ?? '';
-    String mesto = zakaznik['mesto']?.toString() ?? '';
-    String psc = zakaznik['psc']?.toString() ?? '';
-    String finalniAdresa = '$ulice, $psc $mesto'.trim();
-    if (finalniAdresa == ',') finalniAdresa = '-';
-
-    pdf.addPage(
-      pw.MultiPage(
-        pageFormat: PdfPageFormat.a4,
-        margin: const pw.EdgeInsets.all(40),
-        build: (pw.Context context) {
-          return [
-            pw.Header(
-              level: 0,
-              child: pw.Row(
-                mainAxisAlignment: pw.MainAxisAlignment.spaceBetween,
-                children: [
-                  pw.Column(
-                    crossAxisAlignment: pw.CrossAxisAlignment.start,
-                    children: [
-                      pw.Text(
-                        hlavickaNazev,
-                        style: pw.TextStyle(
-                          font: fontBold,
-                          fontSize: 24,
-                          color: PdfColors.blue800,
-                        ),
-                      ),
-                      if (hlavickaIco.isNotEmpty)
-                        pw.Text(
-                          'IČO: $hlavickaIco',
-                          style: pw.TextStyle(
-                            font: fontRegular,
-                            fontSize: 10,
-                            color: PdfColors.grey700,
-                          ),
-                        ),
-                    ],
-                  ),
-                  pw.Text(
-                    'Protokol o příjmu',
-                    style: pw.TextStyle(
-                      font: fontRegular,
-                      fontSize: 20,
-                      color: PdfColors.grey600,
-                    ),
-                  ),
-                ],
-              ),
-            ),
-            pw.SizedBox(height: 15),
-            pw.Container(
-              padding: const pw.EdgeInsets.all(10),
-              decoration: pw.BoxDecoration(
-                color: PdfColors.blue50,
-                borderRadius: pw.BorderRadius.circular(8),
-              ),
-              child: pw.Column(
-                crossAxisAlignment: pw.CrossAxisAlignment.start,
-                children: [
-                  pw.Text(
-                    'Údaje o zákazníkovi',
-                    style: pw.TextStyle(
-                      font: fontBold,
-                      fontSize: 12,
-                      color: PdfColors.blue800,
-                    ),
-                  ),
-                  pw.SizedBox(height: 5),
-                  _buildCompactRowPdf(
-                    'Jméno / Firma:',
-                    zakaznik['jmeno']?.toString() ?? '-',
-                    'IČO:',
-                    zakaznik['ico']?.toString() ?? '-',
-                    fontRegular,
-                    fontBold,
-                  ),
-                  _buildCompactRowPdf(
-                    'Adresa:',
-                    finalniAdresa,
-                    'Telefon:',
-                    zakaznik['telefon']?.toString() ?? '-',
-                    fontRegular,
-                    fontBold,
-                  ),
-                  _buildCompactRowPdf(
-                    'E-mail:',
-                    zakaznik['email']?.toString() ?? '-',
-                    '',
-                    '',
-                    fontRegular,
-                    fontBold,
-                  ),
-                ],
-              ),
-            ),
-            pw.SizedBox(height: 15),
-            pw.Container(
-              padding: const pw.EdgeInsets.all(10),
-              decoration: pw.BoxDecoration(
-                color: PdfColors.grey100,
-                borderRadius: pw.BorderRadius.circular(8),
-              ),
-              child: pw.Column(
-                crossAxisAlignment: pw.CrossAxisAlignment.start,
-                children: [
-                  pw.Text(
-                    'Údaje o vozidle',
-                    style: pw.TextStyle(
-                      font: fontBold,
-                      fontSize: 12,
-                      color: PdfColors.grey800,
-                    ),
-                  ),
-                  pw.SizedBox(height: 5),
-                  _buildCompactRowPdf(
-                    'Zakázka č.:',
-                    data['cislo_zakazky'].toString(),
-                    'SPZ:',
-                    data['spz'].toString(),
-                    fontRegular,
-                    fontBold,
-                  ),
-                  _buildCompactRowPdf(
-                    'Značka/Model:',
-                    '${data['znacka'] ?? '-'} ${data['model'] ?? ''}',
-                    'VIN:',
-                    data['vin']?.toString() ?? '-',
-                    fontRegular,
-                    fontBold,
-                  ),
-                ],
-              ),
-            ),
-            pw.SizedBox(height: 20),
-            pw.Text(
-              'Stav vozidla při příjmu',
-              style: pw.TextStyle(font: fontBold, fontSize: 14),
-            ),
-            pw.SizedBox(height: 8),
-            _buildCompactRowPdf(
-              'Tachometr:',
-              '${stav['tachometr']} km',
-              'Palivo:',
-              '${stav['nadrz']} %',
-              fontRegular,
-              fontBold,
-            ),
-            _buildCompactRowPdf(
-              'Poškození:',
-              poskozeniPdfText,
-              '',
-              '',
-              fontRegular,
-              fontBold,
-            ),
-            if (data['poznamky'] != null &&
-                data['poznamky'].toString().isNotEmpty) ...[
-              pw.SizedBox(height: 10),
-              pw.Text(
-                'Poznámky:',
-                style: pw.TextStyle(font: fontBold, fontSize: 12),
-              ),
-              pw.Text(
-                data['poznamky'].toString(),
-                style: pw.TextStyle(font: fontRegular, fontSize: 11),
-              ),
-            ],
-            pw.Spacer(),
-            if (podpisImage != null) ...[
-              pw.Divider(color: PdfColors.grey300),
-              pw.SizedBox(height: 10),
-              pw.Row(
-                mainAxisAlignment: pw.MainAxisAlignment.spaceBetween,
-                crossAxisAlignment: pw.CrossAxisAlignment.end,
-                children: [
-                  pw.Column(
-                    crossAxisAlignment: pw.CrossAxisAlignment.start,
-                    children: [
-                      pw.Text(
-                        'Podpis zákazníka:',
-                        style: pw.TextStyle(font: fontBold, fontSize: 12),
-                      ),
-                      pw.SizedBox(height: 5),
-                      pw.Image(podpisImage, width: 150, height: 60),
-                      pw.Container(
-                        width: 150,
-                        height: 1,
-                        color: PdfColors.black,
-                      ),
-                    ],
-                  ),
-                  pw.Text(
-                    'Vygenerováno aplikací Torkis',
-                    style: pw.TextStyle(
-                      font: fontRegular,
-                      fontSize: 10,
-                      color: PdfColors.grey500,
-                    ),
-                  ),
-                ],
-              ),
-            ],
-          ];
-        },
-      ),
-    );
-    return pdf.save();
-  }
-
   Future<void> _startDirectUpload() async {
     setState(() => _isUploading = true);
     try {
@@ -1094,6 +783,9 @@ class _MainWizardPageState extends State<MainWizardPage> {
             'motorizace': _motorizaceController.text.trim(),
             'palivo': _vybranePalivo,
             'prevodovka': _vybranaPrevodovka,
+            'tachometr': _tachometrController.text.trim(),
+            'stk_mesic': _stkMesicController.text.trim(),
+            'stk_rok': _stkRokController.text.trim(),
             'posledni_navsteva': FieldValue.serverTimestamp(),
           }, SetOptions(merge: true));
     }
@@ -1158,6 +850,7 @@ class _MainWizardPageState extends State<MainWizardPage> {
         emailZakanika.isNotEmpty &&
         emailZakanika.contains('@')) {
       String odesilatelJmeno = 'Torkis Servis';
+      String odesilatelIco = '';
       final docNastaveni = await FirebaseFirestore.instance
           .collection('nastaveni_servisu')
           .doc(user.uid)
@@ -1165,13 +858,14 @@ class _MainWizardPageState extends State<MainWizardPage> {
       if (docNastaveni.exists) {
         odesilatelJmeno =
             docNastaveni.data()?['nazev_servisu'] ?? 'Torkis Servis';
+        odesilatelIco = docNastaveni.data()?['ico_servisu'] ?? '';
       }
 
-      final pdfBytes = await _generateSilentPdf(
-        zakazkaData,
-        zakazkaData['stav_vozidla'],
-        zakazkaData['zakaznik'],
-        podpisUrl,
+      final pdfBytes = await GlobalPdfGenerator.generateDocument(
+        data: zakazkaData,
+        servisNazev: odesilatelJmeno,
+        servisIco: odesilatelIco,
+        typ: PdfTyp.protokol,
       );
 
       Reference pdfRef = FirebaseStorage.instance.ref().child(

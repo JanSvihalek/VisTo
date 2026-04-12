@@ -13,6 +13,7 @@ import 'dart:io';
 import 'package:http/http.dart' as http;
 import 'dart:typed_data';
 import '../core/constants.dart';
+import '../core/pdf_generator.dart';
 
 // --- IMPORTY PRO PROKLIKY ---
 import 'zakaznici.dart';
@@ -312,25 +313,32 @@ class ActiveJobScreen extends StatelessWidget {
     Map<String, dynamic> zakaznik,
     Map<String, dynamic> imageUrls,
   ) async {
-    final emailZakanika = zakaznik['email']?.toString().trim() ?? '';
-    if (emailZakanika.isEmpty || !emailZakanika.contains('@')) {
-      ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(
-          content: Text(
-            'Zákazník nemá vyplněný platný e-mail! Vraťte se do úpravy zákazníka.',
-          ),
-          backgroundColor: Colors.red,
-        ),
-      );
-      return;
-    }
+    final emailController = TextEditingController(
+      text: zakaznik['email']?.toString().trim() ?? '',
+    );
 
     bool? confirm = await showDialog<bool>(
       context: context,
       builder: (context) => AlertDialog(
-        title: const Text('Odeslat cenový odhad?'),
-        content: Text(
-          'Opravdu chcete odeslat aktuální rozpis prací a dílů na e-mail $emailZakanika jako cenový odhad?',
+        title: const Text('Odeslat nacenění?'),
+        content: Column(
+          mainAxisSize: MainAxisSize.min,
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            const Text(
+              'Aktuální rozpis prací a dílů bude odeslán jako PDF na e-mail níže. V případě potřeby jej můžete změnit.',
+            ),
+            const SizedBox(height: 20),
+            TextField(
+              controller: emailController,
+              keyboardType: TextInputType.emailAddress,
+              decoration: const InputDecoration(
+                labelText: 'E-mail příjemce',
+                border: OutlineInputBorder(),
+                prefixIcon: Icon(Icons.email),
+              ),
+            ),
+          ],
         ),
         actions: [
           TextButton(
@@ -338,7 +346,19 @@ class ActiveJobScreen extends StatelessWidget {
             child: const Text('ZRUŠIT'),
           ),
           TextButton(
-            onPressed: () => Navigator.pop(context, true),
+            onPressed: () {
+              if (emailController.text.trim().isEmpty ||
+                  !emailController.text.contains('@')) {
+                ScaffoldMessenger.of(context).showSnackBar(
+                  const SnackBar(
+                    content: Text('Zadejte platný e-mail!'),
+                    backgroundColor: Colors.red,
+                  ),
+                );
+                return;
+              }
+              Navigator.pop(context, true);
+            },
             child: const Text(
               'ODESLAT',
               style: TextStyle(color: Colors.blue, fontWeight: FontWeight.bold),
@@ -360,7 +380,7 @@ class ActiveJobScreen extends StatelessWidget {
             CircularProgressIndicator(),
             SizedBox(height: 15),
             Text(
-              'Generuji odhad a odesílám e-mail...',
+              'Generuji nacenění...',
               style: TextStyle(
                 color: Colors.white,
                 fontWeight: FontWeight.bold,
@@ -377,17 +397,25 @@ class ActiveJobScreen extends StatelessWidget {
       final user = FirebaseAuth.instance.currentUser;
       if (user == null) throw Exception('Nejste přihlášeni');
 
-      final pdfBytes = await _exportToPdf(
-        PdfPageFormat.a4,
-        data,
-        stav,
-        zakaznik,
-        imageUrls,
-        titulekDokladu: 'Cenový odhad opravy',
+      String odesilatelJmeno = 'Servis';
+      String odesilatelIco = '';
+      final docNastaveni = await FirebaseFirestore.instance
+          .collection('nastaveni_servisu')
+          .doc(user.uid)
+          .get();
+      if (docNastaveni.exists) {
+        odesilatelJmeno = docNastaveni.data()?['nazev_servisu'] ?? 'Servis';
+        odesilatelIco = docNastaveni.data()?['ico_servisu'] ?? '';
+      }
+
+      final pdfBytes = await GlobalPdfGenerator.generateDocument(
+        data: data,
+        servisNazev: odesilatelJmeno,
+        servisIco: odesilatelIco,
+        typ: PdfTyp.naceneni,
       );
 
-      String fileName =
-          'cenovy_odhad_${DateTime.now().millisecondsSinceEpoch}.pdf';
+      String fileName = 'naceneni_${DateTime.now().millisecondsSinceEpoch}.pdf';
       Reference pdfRef = FirebaseStorage.instance.ref().child(
         'servisy/${user.uid}/zakazky/$zakazkaId/$fileName',
       );
@@ -397,33 +425,23 @@ class ActiveJobScreen extends StatelessWidget {
       );
       String pdfUrl = await pdfRef.getDownloadURL();
 
-      String odesilatelJmeno = 'Servis';
-      final docNastaveni = await FirebaseFirestore.instance
-          .collection('nastaveni_servisu')
-          .doc(user.uid)
-          .get();
-      if (docNastaveni.exists) {
-        odesilatelJmeno = docNastaveni.data()?['nazev_servisu'] ?? 'Servis';
-      }
-
       await FirebaseFirestore.instance.collection('maily').add({
-        'to': emailZakanika,
+        'to': emailController.text.trim(),
         'from': '$odesilatelJmeno (přes Torkis) <jan.svihalek00@gmail.com>',
         'replyTo': user.email,
         'message': {
-          'subject': 'Cenový odhad opravy vozidla $spz - $odesilatelJmeno',
+          'subject': 'Nacenění opravy vozidla $spz - $odesilatelJmeno',
           'html':
               '''
             <div style="font-family: Arial, sans-serif; color: #333; max-width: 600px; margin: 0 auto; border: 1px solid #eee; padding: 20px; border-radius: 10px;">
-              <h2 style="color: #2196F3; border-bottom: 2px solid #2196F3; padding-bottom: 10px;">Dobrý den,</h2>
-              <p>k Vašemu vozidlu <b>$spz</b> jsme zpracovali předběžný rozpočet plánovaných oprav a materiálu.</p>
-              <p>V příloze Vám zasíláme odkaz na cenový odhad. Dovolujeme si upozornit, že se nejedná o finální vyúčtování a konečná cena se může po předchozí dohodě ještě měnit.</p>
+              <h2 style="color: #2196F3;">Dobrý den,</h2>
+              <p>k Vašemu vozidlu <b>$spz</b> jsme zpracovali nacenění plánovaných oprav.</p>
               <div style="text-align: center; margin: 30px 0;">
-                <a href="$pdfUrl" style="background-color: #2196F3; color: white; padding: 15px 30px; text-decoration: none; border-radius: 5px; font-weight: bold; font-size: 16px; display: inline-block;">Zobrazit cenový odhad</a>
+                <a href="$pdfUrl" style="background-color: #2196F3; color: white; padding: 15px 30px; text-decoration: none; border-radius: 5px; font-weight: bold;">Zobrazit Nacenění (PDF)</a>
               </div>
-              <p>V případě schválení tohoto odhadu nebo jakýchkoliv dotazů na tento e-mail jednoduše odpovězte.</p>
+              <p>V případě dotazů na tento e-mail jednoduše odpovězte.</p>
               <hr style="border: 0; border-top: 1px solid #eee; margin: 20px 0;">
-              <p style="font-size: 12px; color: #777;">Tento e-mail byl vygenerován automaticky systémem <b>Torkis.cz</b> pro servis <b>$odesilatelJmeno</b>.</p>
+              <p style="font-size: 12px; color: #777;">Vygenerováno systémem Torkis.cz.</p>
             </div>
           ''',
         },
@@ -433,9 +451,7 @@ class ActiveJobScreen extends StatelessWidget {
         Navigator.pop(context);
         ScaffoldMessenger.of(context).showSnackBar(
           const SnackBar(
-            content: Text(
-              'Cenový odhad byl úspěšně odeslán zákazníkovi na e-mail.',
-            ),
+            content: Text('Nacenění bylo úspěšně odesláno.'),
             backgroundColor: Colors.green,
           ),
         );
@@ -444,10 +460,7 @@ class ActiveJobScreen extends StatelessWidget {
       if (context.mounted) {
         Navigator.pop(context);
         ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(
-            content: Text('Chyba při odesílání odhadu: $e'),
-            backgroundColor: Colors.red,
-          ),
+          SnackBar(content: Text('Chyba: $e'), backgroundColor: Colors.red),
         );
       }
     }
@@ -609,13 +622,22 @@ class ActiveJobScreen extends StatelessWidget {
       String pdfUrl = '';
 
       if (!zruseno) {
-        final pdfBytes = await _exportToPdf(
-          PdfPageFormat.a4,
-          data,
-          stav,
-          zakaznik,
-          imageUrls,
-          titulekDokladu: 'Finální vyúčtování zakázky',
+        String odesilatelJmeno = 'Servis';
+        String odesilatelIco = '';
+        final docNastaveni = await FirebaseFirestore.instance
+            .collection('nastaveni_servisu')
+            .doc(user.uid)
+            .get();
+        if (docNastaveni.exists) {
+          odesilatelJmeno = docNastaveni.data()?['nazev_servisu'] ?? 'Servis';
+          odesilatelIco = docNastaveni.data()?['ico_servisu'] ?? '';
+        }
+
+        final pdfBytes = await GlobalPdfGenerator.generateDocument(
+          data: data,
+          servisNazev: odesilatelJmeno,
+          servisIco: odesilatelIco,
+          typ: PdfTyp.faktura,
         );
 
         Reference pdfRef = FirebaseStorage.instance.ref().child(
@@ -629,15 +651,6 @@ class ActiveJobScreen extends StatelessWidget {
 
         final emailZakanika = zakaznik['email']?.toString().trim() ?? '';
         if (emailZakanika.isNotEmpty && emailZakanika.contains('@')) {
-          String odesilatelJmeno = 'Servis';
-          final docNastaveni = await FirebaseFirestore.instance
-              .collection('nastaveni_servisu')
-              .doc(user.uid)
-              .get();
-          if (docNastaveni.exists) {
-            odesilatelJmeno = docNastaveni.data()?['nazev_servisu'] ?? 'Servis';
-          }
-
           await FirebaseFirestore.instance.collection('maily').add({
             'to': emailZakanika,
             'from': '$odesilatelJmeno (přes Torkis) <jan.svihalek00@gmail.com>',
@@ -699,479 +712,6 @@ class ActiveJobScreen extends StatelessWidget {
     }
   }
 
-  pw.Widget _buildCompactRow(
-    String label1,
-    String value1,
-    String label2,
-    String value2,
-    pw.Font fontReg,
-    pw.Font fontBld,
-  ) {
-    return pw.Padding(
-      padding: const pw.EdgeInsets.only(bottom: 4),
-      child: pw.Row(
-        children: [
-          pw.Expanded(
-            child: pw.Row(
-              crossAxisAlignment: pw.CrossAxisAlignment.start,
-              children: [
-                pw.Text(
-                  label1,
-                  style: pw.TextStyle(
-                    font: fontReg,
-                    fontSize: 10,
-                    color: PdfColors.grey700,
-                  ),
-                ),
-                pw.SizedBox(width: 4),
-                pw.Expanded(
-                  child: pw.Text(
-                    value1,
-                    style: pw.TextStyle(font: fontBld, fontSize: 11),
-                  ),
-                ),
-              ],
-            ),
-          ),
-          if (label2.isNotEmpty)
-            pw.Expanded(
-              child: pw.Row(
-                crossAxisAlignment: pw.CrossAxisAlignment.start,
-                children: [
-                  pw.Text(
-                    label2,
-                    style: pw.TextStyle(
-                      font: fontReg,
-                      fontSize: 10,
-                      color: PdfColors.grey700,
-                    ),
-                  ),
-                  pw.SizedBox(width: 4),
-                  pw.Expanded(
-                    child: pw.Text(
-                      value2,
-                      style: pw.TextStyle(font: fontBld, fontSize: 11),
-                    ),
-                  ),
-                ],
-              ),
-            )
-          else
-            pw.Expanded(child: pw.SizedBox()),
-        ],
-      ),
-    );
-  }
-
-  Future<Uint8List> _exportToPdf(
-    PdfPageFormat format,
-    Map<String, dynamic> data,
-    Map<String, dynamic> stav,
-    Map<String, dynamic> zakaznik,
-    Map<String, dynamic> imageUrlsByCategory, {
-    String titulekDokladu = 'Protokol o příjmu a vyúčtování',
-  }) async {
-    final user = FirebaseAuth.instance.currentUser;
-    String hlavickaNazev = 'VISTO';
-    String hlavickaIco = '';
-    if (user != null) {
-      final nastaveniDoc = await FirebaseFirestore.instance
-          .collection('nastaveni_servisu')
-          .doc(user.uid)
-          .get();
-      if (nastaveniDoc.exists) {
-        hlavickaNazev = nastaveniDoc.data()?['nazev_servisu'] ?? 'Servis';
-        hlavickaIco = nastaveniDoc.data()?['ico_servisu'] ?? '';
-      }
-    }
-
-    final provedenePrace = data['provedene_prace'] as List<dynamic>? ?? [];
-    final podpisUrl = data['podpis_url'] as String?;
-    pw.MemoryImage? podpisImage;
-
-    if (podpisUrl != null) {
-      try {
-        final response = await http.get(Uri.parse(podpisUrl));
-        if (response.statusCode == 200)
-          podpisImage = pw.MemoryImage(response.bodyBytes);
-      } catch (e) {
-        debugPrint("Chyba při stahování podpisu do PDF: $e");
-      }
-    }
-
-    double celkovaSumaZakazky = 0.0;
-    final pdf = pw.Document();
-    final fontRegular = await PdfGoogleFonts.robotoRegular();
-    final fontBold = await PdfGoogleFonts.robotoBold();
-
-    pdf.addPage(
-      pw.MultiPage(
-        pageFormat: PdfPageFormat.a4,
-        margin: const pw.EdgeInsets.all(40),
-        build: (pw.Context context) {
-          return [
-            pw.Header(
-              level: 0,
-              child: pw.Row(
-                mainAxisAlignment: pw.MainAxisAlignment.spaceBetween,
-                children: [
-                  pw.Column(
-                    crossAxisAlignment:
-                        pw.CrossAxisAlignment.start, // OPRAVENO pw.
-                    children: [
-                      pw.Text(
-                        hlavickaNazev,
-                        style: pw.TextStyle(
-                          font: fontBold,
-                          fontSize: 24,
-                          color: PdfColors.blue800,
-                        ),
-                      ),
-                      if (hlavickaIco.isNotEmpty)
-                        pw.Text(
-                          'IČO: $hlavickaIco',
-                          style: pw.TextStyle(
-                            font: fontRegular,
-                            fontSize: 10,
-                            color: PdfColors.grey700,
-                          ),
-                        ),
-                    ],
-                  ),
-                  pw.Text(
-                    titulekDokladu,
-                    style: pw.TextStyle(
-                      font: fontRegular,
-                      fontSize: 18,
-                      color: PdfColors.grey600,
-                    ),
-                  ),
-                ],
-              ),
-            ),
-            pw.SizedBox(height: 15),
-            pw.Container(
-              padding: const pw.EdgeInsets.all(10),
-              decoration: pw.BoxDecoration(
-                color: PdfColors.blue50,
-                borderRadius: pw.BorderRadius.circular(8),
-              ),
-              child: pw.Column(
-                crossAxisAlignment: pw.CrossAxisAlignment.start, // OPRAVENO pw.
-                children: [
-                  pw.Text(
-                    'Údaje o zákazníkovi',
-                    style: pw.TextStyle(
-                      font: fontBold,
-                      fontSize: 12,
-                      color: PdfColors.blue800,
-                    ),
-                  ),
-                  pw.SizedBox(height: 5),
-                  _buildCompactRow(
-                    'Jméno / Firma:',
-                    zakaznik['jmeno']?.toString() ?? '-',
-                    'IČO:',
-                    zakaznik['ico']?.toString() ?? '-',
-                    fontRegular,
-                    fontBold,
-                  ),
-                  _buildCompactRow(
-                    'Adresa:',
-                    zakaznik['adresa']?.toString() ?? '-',
-                    'Telefon:',
-                    zakaznik['telefon']?.toString() ?? '-',
-                    fontRegular,
-                    fontBold,
-                  ),
-                  _buildCompactRow(
-                    'E-mail:',
-                    zakaznik['email']?.toString() ?? '-',
-                    '',
-                    '',
-                    fontRegular,
-                    fontBold,
-                  ),
-                ],
-              ),
-            ),
-            pw.SizedBox(height: 15),
-            pw.Container(
-              padding: const pw.EdgeInsets.all(10),
-              decoration: pw.BoxDecoration(
-                color: PdfColors.grey100,
-                borderRadius: pw.BorderRadius.circular(8),
-              ),
-              child: pw.Column(
-                crossAxisAlignment: pw.CrossAxisAlignment.start, // OPRAVENO pw.
-                children: [
-                  pw.Text(
-                    'Údaje o vozidle',
-                    style: pw.TextStyle(
-                      font: fontBold,
-                      fontSize: 12,
-                      color: PdfColors.grey800,
-                    ),
-                  ),
-                  pw.SizedBox(height: 5),
-                  _buildCompactRow(
-                    'Zakázka č.:',
-                    data['cislo_zakazky'].toString(),
-                    'Přijato:',
-                    _formatDate(data['cas_prijeti']),
-                    fontRegular,
-                    fontBold,
-                  ),
-                  _buildCompactRow(
-                    'SPZ:',
-                    data['spz'].toString(),
-                    'VIN:',
-                    data['vin']?.toString() ?? '-',
-                    fontRegular,
-                    fontBold,
-                  ),
-                  _buildCompactRow(
-                    'Značka:',
-                    data['znacka']?.toString() ?? '-',
-                    'Model:',
-                    data['model']?.toString() ?? '-',
-                    fontRegular,
-                    fontBold,
-                  ),
-                ],
-              ),
-            ),
-
-            pw.SizedBox(height: 20),
-            pw.Text(
-              'Rozpis provedených prací a materiálu',
-              style: pw.TextStyle(font: fontBold, fontSize: 14),
-            ),
-            pw.SizedBox(height: 10),
-
-            // Tabulka vyúčtování
-            pw.Table(
-              border: pw.TableBorder.all(color: PdfColors.grey300, width: 0.5),
-              children: [
-                pw.TableRow(
-                  decoration: const pw.BoxDecoration(color: PdfColors.grey200),
-                  children: [
-                    pw.Padding(
-                      padding: const pw.EdgeInsets.all(5),
-                      child: pw.Text(
-                        'Položka',
-                        style: pw.TextStyle(font: fontBold, fontSize: 10),
-                      ),
-                    ),
-                    pw.Padding(
-                      padding: const pw.EdgeInsets.all(5),
-                      child: pw.Text(
-                        'Množství',
-                        style: pw.TextStyle(font: fontBold, fontSize: 10),
-                      ),
-                    ),
-                    pw.Padding(
-                      padding: const pw.EdgeInsets.all(5),
-                      child: pw.Text(
-                        'Cena/j',
-                        style: pw.TextStyle(font: fontBold, fontSize: 10),
-                      ),
-                    ),
-                    pw.Padding(
-                      padding: const pw.EdgeInsets.all(5),
-                      child: pw.Text(
-                        'Celkem',
-                        style: pw.TextStyle(font: fontBold, fontSize: 10),
-                      ),
-                    ),
-                  ],
-                ),
-                ...provedenePrace.expand((prace) {
-                  List<pw.TableRow> rows = [];
-                  double cenaPrace = (prace['cena_s_dph'] ?? 0.0).toDouble();
-                  celkovaSumaZakazky += cenaPrace;
-
-                  rows.add(
-                    pw.TableRow(
-                      children: [
-                        pw.Padding(
-                          padding: const pw.EdgeInsets.all(5),
-                          child: pw.Text(
-                            prace['nazev'],
-                            style: pw.TextStyle(
-                              font: fontRegular,
-                              fontSize: 10,
-                            ),
-                          ),
-                        ),
-                        pw.Padding(
-                          padding: const pw.EdgeInsets.all(5),
-                          child: pw.Text(
-                            '${prace['delka_prace'] ?? 1} h',
-                            style: pw.TextStyle(
-                              font: fontRegular,
-                              fontSize: 10,
-                            ),
-                          ),
-                        ),
-                        pw.Padding(
-                          padding: const pw.EdgeInsets.all(5),
-                          child: pw.Text(
-                            '-',
-                            style: pw.TextStyle(
-                              font: fontRegular,
-                              fontSize: 10,
-                            ),
-                          ),
-                        ),
-                        pw.Padding(
-                          padding: const pw.EdgeInsets.all(5),
-                          child: pw.Text(
-                            '${cenaPrace.toStringAsFixed(2)} Kč',
-                            style: pw.TextStyle(
-                              font: fontRegular,
-                              fontSize: 10,
-                            ),
-                          ),
-                        ),
-                      ],
-                    ),
-                  );
-
-                  final dily = prace['pouzite_dily'] as List<dynamic>? ?? [];
-                  for (var dil in dily) {
-                    double pocet = (dil['pocet'] ?? 1.0).toDouble();
-                    double cenaKs = (dil['cena_s_dph'] ?? 0.0).toDouble();
-                    double dilCelkem = pocet * cenaKs;
-                    celkovaSumaZakazky += dilCelkem;
-
-                    rows.add(
-                      pw.TableRow(
-                        children: [
-                          pw.Padding(
-                            padding: const pw.EdgeInsets.all(5),
-                            child: pw.Text(
-                              '  - ${dil['nazev']}',
-                              style: pw.TextStyle(
-                                font: fontRegular,
-                                fontSize: 9,
-                                color: PdfColors.grey700,
-                              ),
-                            ),
-                          ),
-                          pw.Padding(
-                            padding: const pw.EdgeInsets.all(5),
-                            child: pw.Text(
-                              '$pocet ks',
-                              style: pw.TextStyle(
-                                font: fontRegular,
-                                fontSize: 9,
-                              ),
-                            ),
-                          ),
-                          pw.Padding(
-                            padding: const pw.EdgeInsets.all(5),
-                            child: pw.Text(
-                              '${cenaKs.toStringAsFixed(2)} Kč',
-                              style: pw.TextStyle(
-                                font: fontRegular,
-                                fontSize: 9,
-                              ),
-                            ),
-                          ),
-                          pw.Padding(
-                            padding: const pw.EdgeInsets.all(5),
-                            child: pw.Text(
-                              '${dilCelkem.toStringAsFixed(2)} Kč',
-                              style: pw.TextStyle(
-                                font: fontRegular,
-                                fontSize: 9,
-                              ),
-                            ),
-                          ),
-                        ],
-                      ),
-                    );
-                  }
-                  return rows;
-                }),
-              ],
-            ),
-
-            pw.SizedBox(height: 20),
-            pw.Row(
-              mainAxisAlignment: pw.MainAxisAlignment.end,
-              children: [
-                pw.Container(
-                  padding: const pw.EdgeInsets.all(10),
-                  decoration: pw.BoxDecoration(
-                    color: PdfColors.blue100,
-                    borderRadius: pw.BorderRadius.circular(5),
-                  ),
-                  child: pw.Row(
-                    children: [
-                      pw.Text(
-                        'CELKEM K ÚHRADĚ: ',
-                        style: pw.TextStyle(font: fontBold, fontSize: 14),
-                      ),
-                      pw.Text(
-                        '${celkovaSumaZakazky.toStringAsFixed(2)} Kč',
-                        style: pw.TextStyle(
-                          font: fontBold,
-                          fontSize: 16,
-                          color: PdfColors.blue900,
-                        ),
-                      ),
-                    ],
-                  ),
-                ),
-              ],
-            ),
-
-            pw.Spacer(),
-            if (podpisImage != null) ...[
-              pw.SizedBox(height: 30),
-              pw.Divider(color: PdfColors.grey300),
-              pw.SizedBox(height: 10),
-              pw.Row(
-                mainAxisAlignment: pw.MainAxisAlignment.spaceBetween,
-                crossAxisAlignment: pw.CrossAxisAlignment.end,
-                children: [
-                  pw.Column(
-                    crossAxisAlignment:
-                        pw.CrossAxisAlignment.start, // OPRAVENO pw.
-                    children: [
-                      pw.Text(
-                        'Podpis zákazníka při převzetí:',
-                        style: pw.TextStyle(font: fontBold, fontSize: 12),
-                      ),
-                      pw.SizedBox(height: 5),
-                      pw.Image(podpisImage, width: 150, height: 60),
-                      pw.Container(
-                        width: 150,
-                        height: 1,
-                        color: PdfColors.black,
-                      ),
-                    ],
-                  ),
-                  pw.Text(
-                    'Vygenerováno systémem Torkis.cz',
-                    style: pw.TextStyle(
-                      font: fontRegular,
-                      fontSize: 8,
-                      color: PdfColors.grey500,
-                    ),
-                  ),
-                ],
-              ),
-            ],
-          ];
-        },
-      ),
-    );
-    return pdf.save();
-  }
-
   @override
   Widget build(BuildContext context) {
     final isDark = Theme.of(context).brightness == Brightness.dark;
@@ -1205,8 +745,6 @@ class ActiveJobScreen extends StatelessWidget {
           final aktualniStav = data['stav_zakazky'] ?? 'Přijato';
           final stav = data['stav_vozidla'] as Map<String, dynamic>? ?? {};
           final zakaznik = data['zakaznik'] as Map<String, dynamic>? ?? {};
-          final znackaNazev = (data['znacka']?.toString() ?? '').trim();
-
           final rawUrls = data['fotografie_urls'];
           final Map<String, dynamic> imageUrlsByCategoryRaw = {};
           if (rawUrls is Map) {
@@ -1303,17 +841,36 @@ class ActiveJobScreen extends StatelessWidget {
                                 title: const Text('Náhled protokolu'),
                               ),
                               body: PdfPreview(
-                                build: (format) => _exportToPdf(
-                                  format,
-                                  data,
-                                  stav,
-                                  zakaznik,
-                                  imageUrlsByCategoryRaw,
-                                ),
+                                build: (format) async {
+                                  final user =
+                                      FirebaseAuth.instance.currentUser;
+                                  String sNazev = 'Servis';
+                                  String sIco = '';
+                                  if (user != null) {
+                                    final docNast = await FirebaseFirestore
+                                        .instance
+                                        .collection('nastaveni_servisu')
+                                        .doc(user.uid)
+                                        .get();
+                                    sNazev =
+                                        docNast.data()?['nazev_servisu'] ??
+                                        'Servis';
+                                    sIco = docNast.data()?['ico_servisu'] ?? '';
+                                  }
+                                  return await GlobalPdfGenerator.generateDocument(
+                                    data: data,
+                                    servisNazev: sNazev,
+                                    servisIco: sIco,
+                                    typ: PdfTyp.faktura,
+                                  );
+                                },
                                 allowSharing: true,
                                 allowPrinting: true,
                                 canChangeOrientation: false,
                                 canChangePageFormat: false,
+                                loadingWidget: const Center(
+                                  child: CircularProgressIndicator(),
+                                ),
                               ),
                             ),
                           ),
@@ -1330,74 +887,6 @@ class ActiveJobScreen extends StatelessWidget {
                 child: ListView(
                   padding: const EdgeInsets.all(20),
                   children: [
-                    // --- HLAVIČKA S LOGEM A SPZ ---
-                    Column(
-                      children: [
-                        if (znackaNazev.isNotEmpty)
-                          FutureBuilder<QuerySnapshot>(
-                            future: FirebaseFirestore.instance
-                                .collection('znacka')
-                                .get(),
-                            builder: (context, snap) {
-                              if (snap.hasData) {
-                                String nalezeneLogo = '';
-                                for (var doc in snap.data!.docs) {
-                                  final d = doc.data() as Map<String, dynamic>;
-                                  final dbNazev =
-                                      (d['nazev']?.toString() ?? doc.id)
-                                          .trim()
-                                          .toLowerCase();
-                                  if (dbNazev == znackaNazev.toLowerCase()) {
-                                    nalezeneLogo =
-                                        d['logo']?.toString() ??
-                                        d['logo_url']?.toString() ??
-                                        '';
-                                    break;
-                                  }
-                                }
-                                if (nalezeneLogo.isNotEmpty) {
-                                  return Padding(
-                                    padding: const EdgeInsets.only(bottom: 15),
-                                    child: Image.network(
-                                      nalezeneLogo,
-                                      height: 80,
-                                      fit: BoxFit.contain,
-                                    ),
-                                  );
-                                }
-                              }
-                              return const SizedBox(height: 10);
-                            },
-                          ),
-
-                        Container(
-                          padding: const EdgeInsets.symmetric(
-                            horizontal: 20,
-                            vertical: 8,
-                          ),
-                          decoration: BoxDecoration(
-                            color: isDark ? Colors.black : Colors.white,
-                            borderRadius: BorderRadius.circular(8),
-                            border: Border.all(
-                              color: isDark
-                                  ? Colors.grey[600]!
-                                  : Colors.black87,
-                              width: 2,
-                            ),
-                          ),
-                          child: Text(
-                            spz.toUpperCase(),
-                            style: const TextStyle(
-                              fontWeight: FontWeight.bold,
-                              fontSize: 24,
-                              letterSpacing: 2,
-                            ),
-                          ),
-                        ),
-                      ],
-                    ),
-                    const SizedBox(height: 25),
-
                     Card(
                       color: isDark ? const Color(0xFF1E1E1E) : Colors.white,
                       margin: const EdgeInsets.only(bottom: 20),
@@ -1428,6 +917,7 @@ class ActiveJobScreen extends StatelessWidget {
                             Row(
                               crossAxisAlignment: CrossAxisAlignment.start,
                               children: [
+                                // ZÁKAZNÍK (klikací - Otevírá detail)
                                 Expanded(
                                   child: Material(
                                     color: Colors.transparent,
@@ -1500,12 +990,14 @@ class ActiveJobScreen extends StatelessWidget {
                                     ),
                                   ),
                                 ),
+                                // Oddělovač
                                 Container(
                                   width: 1,
                                   height: 80,
                                   color: Colors.grey.withOpacity(0.3),
                                   margin: const EdgeInsets.only(top: 10),
                                 ),
+                                // VOZIDLO (klikací - Otevírá detail)
                                 Expanded(
                                   child: Material(
                                     color: Colors.transparent,
@@ -1595,6 +1087,22 @@ class ActiveJobScreen extends StatelessWidget {
                                                 fontWeight: FontWeight.bold,
                                               ),
                                             ),
+                                            if (data['rok_vyroby']
+                                                        ?.toString()
+                                                        .isNotEmpty ==
+                                                    true ||
+                                                data['motorizace']
+                                                        ?.toString()
+                                                        .isNotEmpty ==
+                                                    true)
+                                              Text(
+                                                '${data['rok_vyroby'] ?? ''} ${data['motorizace'] ?? ''}'
+                                                    .trim(),
+                                                style: const TextStyle(
+                                                  fontSize: 12,
+                                                  color: Colors.grey,
+                                                ),
+                                              ),
                                             Text(
                                               'VIN: ${data['vin']?.toString().isNotEmpty == true ? data['vin'] : '-'}',
                                               style: const TextStyle(
@@ -2729,5 +2237,21 @@ class _AddWorkScreenState extends State<AddWorkScreen> {
         ),
       ),
     );
+  }
+}
+
+class DilInput {
+  final cislo = TextEditingController();
+  final nazev = TextEditingController();
+  final pocet = TextEditingController(text: '1');
+  final cenaBezDph = TextEditingController(text: '0');
+  final cenaSDph = TextEditingController(text: '0');
+
+  void dispose() {
+    cislo.dispose();
+    nazev.dispose();
+    pocet.dispose();
+    cenaBezDph.dispose();
+    cenaSDph.dispose();
   }
 }

@@ -171,6 +171,12 @@ class _VozidlaPageState extends State<VozidlaPage> {
                       .toLowerCase();
                   final logoUrl = _logaZnacek[znackaNazev];
 
+                  // PŘIDÁNO: Načtení tachometru a STK
+                  final tacho = data['tachometr']?.toString() ?? '';
+                  final stkM = data['stk_mesic']?.toString() ?? '';
+                  final stkR = data['stk_rok']?.toString() ?? '';
+                  final maStk = stkM.isNotEmpty && stkR.isNotEmpty;
+
                   return Card(
                     color: isDark ? const Color(0xFF1E1E1E) : Colors.white,
                     shape: RoundedRectangleBorder(
@@ -232,6 +238,17 @@ class _VozidlaPageState extends State<VozidlaPage> {
                                 style: const TextStyle(
                                   fontSize: 12,
                                   color: Colors.grey,
+                                ),
+                              ),
+                            // PŘIDÁNO: Zobrazení tachometru a STK
+                            const SizedBox(height: 4),
+                            if (tacho.isNotEmpty || maStk)
+                              Text(
+                                '${tacho.isNotEmpty ? 'Tachometr: $tacho km' : ''}${tacho.isNotEmpty && maStk ? ' • ' : ''}${maStk ? 'STK: $stkM/$stkR' : ''}',
+                                style: const TextStyle(
+                                  fontSize: 12,
+                                  color: Colors.teal,
+                                  fontWeight: FontWeight.w500,
                                 ),
                               ),
                           ],
@@ -510,6 +527,11 @@ class VozidloDetailScreen extends StatelessWidget {
         final zakaznikId = autoData['zakaznik_id']?.toString() ?? '';
         final znackaNazev = (autoData['znacka']?.toString() ?? '').trim();
 
+        // PŘIDÁNO: Načtení tachometru a STK
+        final tacho = autoData['tachometr']?.toString() ?? '';
+        final stkM = autoData['stk_mesic']?.toString() ?? '';
+        final stkR = autoData['stk_rok']?.toString() ?? '';
+
         return Scaffold(
           backgroundColor: Theme.of(context).colorScheme.surface,
           appBar: AppBar(
@@ -534,7 +556,7 @@ class VozidloDetailScreen extends StatelessWidget {
               crossAxisAlignment:
                   CrossAxisAlignment.center, // Vycentrování celého sloupce
               children: [
-                // --- NOVÁ VELKÁ HLAVIČKA S LOGEM NAD SPZ ---
+                // --- VELKÁ HLAVIČKA S LOGEM NAD SPZ ---
                 Column(
                   children: [
                     if (znackaNazev.isNotEmpty)
@@ -665,6 +687,28 @@ class VozidloDetailScreen extends StatelessWidget {
                               child: _buildInfoColumn(
                                 'Rok výroby',
                                 autoData['rok_vyroby'],
+                              ),
+                            ),
+                          ],
+                        ),
+                        // PŘIDÁNO: Zobrazení tachometru a STK
+                        const SizedBox(height: 20),
+                        const Divider(),
+                        const SizedBox(height: 10),
+                        Row(
+                          children: [
+                            Expanded(
+                              child: _buildInfoColumn(
+                                'Tachometr (poslední)',
+                                tacho.isNotEmpty ? '$tacho km' : '-',
+                              ),
+                            ),
+                            Expanded(
+                              child: _buildInfoColumn(
+                                'Platnost STK',
+                                stkM.isNotEmpty && stkR.isNotEmpty
+                                    ? '$stkM / $stkR'
+                                    : '-',
                               ),
                             ),
                           ],
