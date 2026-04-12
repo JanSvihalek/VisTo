@@ -564,7 +564,7 @@ class _MainWizardPageState extends State<MainWizardPage> {
 
   Future<Uint8List> _generateSilentPdf(Map<String, dynamic> data, Map<String, dynamic> stav, Map<String, dynamic> zakaznik, String? podpisUrl) async {
     final user = FirebaseAuth.instance.currentUser;
-    String hlavickaNazev = 'Fixio';
+    String hlavickaNazev = 'Torkis';
     String hlavickaIco = '';
     if (user != null) {
       final nastaveniDoc = await FirebaseFirestore.instance.collection('nastaveni_servisu').doc(user.uid).get();

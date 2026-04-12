@@ -661,7 +661,7 @@ class _HistoryPageState extends State<HistoryPage> {
     Map<String, dynamic> data,
   ) async {
     final user = FirebaseAuth.instance.currentUser;
-    String hlavickaNazev = 'Fixio';
+    String hlavickaNazev = 'Torkis';
     String hlavickaIco = '';
     if (user != null) {
       final nastaveniDoc = await FirebaseFirestore.instance
@@ -669,7 +669,7 @@ class _HistoryPageState extends State<HistoryPage> {
           .doc(user.uid)
           .get();
       if (nastaveniDoc.exists) {
-        hlavickaNazev = nastaveniDoc.data()?['nazev_servisu'] ?? 'Fixio';
+        hlavickaNazev = nastaveniDoc.data()?['nazev_servisu'] ?? 'Torkis';
         hlavickaIco = nastaveniDoc.data()?['ico_servisu'] ?? '';
       }
     }
@@ -1115,7 +1115,7 @@ class _HistoryPageState extends State<HistoryPage> {
                     ],
                   ),
                   pw.Text(
-                    'Vygenerováno aplikací Fixio',
+                    'Vygenerováno aplikací Torkis',
                     style: pw.TextStyle(
                       font: fontRegular,
                       fontSize: 10,
@@ -1127,7 +1127,7 @@ class _HistoryPageState extends State<HistoryPage> {
             ] else ...[
               pw.Center(
                 child: pw.Text(
-                  'Vygenerováno aplikací Fixio',
+                  'Vygenerováno aplikací Torkis',
                   style: pw.TextStyle(
                     font: fontRegular,
                     fontSize: 10,
@@ -1641,7 +1641,7 @@ class _HistoryPageState extends State<HistoryPage> {
             pw.SizedBox(height: 5),
             pw.Center(
               child: pw.Text(
-                'Vygenerováno systémem Fixio.',
+                'Vygenerováno systémem Torkis.',
                 style: pw.TextStyle(
                   font: fontRegular,
                   fontSize: 8,

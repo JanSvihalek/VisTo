@@ -255,7 +255,7 @@ class _SetupWizardScreenState extends State<SetupWizardScreen> {
             child: const Icon(Icons.handshake, color: Colors.blue, size: 40),
           ),
           const SizedBox(height: 20),
-          const Text('Vítejte ve Fixio!', style: TextStyle(fontSize: 32, fontWeight: FontWeight.bold)),
+          const Text('Vítejte ve Torkis!', style: TextStyle(fontSize: 32, fontWeight: FontWeight.bold)),
           const SizedBox(height: 10),
           const Text('Nejprve vyplníme základní informace o vašem servisu. Ty se pak budou automaticky propisovat do faktur a protokolů.', style: TextStyle(fontSize: 14, color: Colors.grey)),
           const SizedBox(height: 40),

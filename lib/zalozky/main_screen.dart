@@ -45,7 +45,7 @@ class _MainScreenState extends State<MainScreen> {
               ),
               const SizedBox(width: 4),
               Text(
-  'Fixio',
+  'Torkis',
   style: TextStyle(
 // ...
                   fontWeight: FontWeight.w900,
