@@ -3,7 +3,7 @@ import 'package:flutter/foundation.dart';
 import 'package:image_picker/image_picker.dart';
 import 'package:google_mlkit_text_recognition/google_mlkit_text_recognition.dart';
 import 'dart:io';
-import 'dart:typed_data'; // <--- PŘIDANÝ CHYBĚJÍCÍ IMPORT PRO PDF
+import 'dart:typed_data';
 import 'package:http/http.dart' as http;
 import 'dart:convert';
 import 'package:signature/signature.dart';
@@ -34,7 +34,11 @@ class _MainWizardPageState extends State<MainWizardPage> {
 
   final _jmenoController = TextEditingController();
   final _icoController = TextEditingController();
-  final _adresaController = TextEditingController();
+  // --- ROZDĚLENÁ ADRESA ---
+  final _uliceController = TextEditingController();
+  final _mestoController = TextEditingController();
+  final _pscController = TextEditingController();
+  
   final _telefonController = TextEditingController();
   final _emailZController = TextEditingController();
 
@@ -208,7 +212,7 @@ class _MainWizardPageState extends State<MainWizardPage> {
       if (mounted) setState(() => _isGeneratingCislo = false);
     }
   }
-
+  
   Future<void> _hledatPodleSpz() async {
     final spz = _spzController.text.trim().toUpperCase().replaceAll(' ', '');
     if (spz.isEmpty) {
@@ -283,7 +287,12 @@ class _MainWizardPageState extends State<MainWizardPage> {
           _vybranyZakaznikId = z['id_zakaznika']?.toString();
           _jmenoController.text = z['jmeno']?.toString() ?? '';
           _icoController.text = z['ico']?.toString() ?? '';
-          _adresaController.text = z['adresa']?.toString() ?? '';
+          
+          // Načtení rozdělené adresy
+          _uliceController.text = z['ulice']?.toString() ?? (z['adresa']?.toString() ?? '');
+          _mestoController.text = z['mesto']?.toString() ?? '';
+          _pscController.text = z['psc']?.toString() ?? '';
+          
           _telefonController.text = z['telefon']?.toString() ?? '';
           _emailZController.text = z['email']?.toString() ?? '';
         });
@@ -350,6 +359,9 @@ class _MainWizardPageState extends State<MainWizardPage> {
     _tachometrController.dispose();
     _poskozeniController.dispose();
     _signatureController.dispose();
+    _uliceController.dispose();
+    _mestoController.dispose();
+    _pscController.dispose();
     for (var c in _pozadavkyControllers) { c.dispose(); }
     super.dispose();
   }
@@ -376,9 +388,26 @@ class _MainWizardPageState extends State<MainWizardPage> {
         final data = json.decode(utf8.decode(response.bodyBytes));
         setState(() {
           _jmenoController.text = data['obchodniJmeno'] ?? '';
+          
           final sidlo = data['sidlo'] ?? {};
-          final ulice = sidlo['textovaAdresa'] ?? '';
-          _adresaController.text = ulice;
+          
+          // ARES strukturovaná data
+          final ulice = sidlo['nazevUlice'] ?? sidlo['nazevObce'] ?? '';
+          final cp = sidlo['cisloDomovni'] != null ? ' ${sidlo['cisloDomovni']}' : '';
+          final co = sidlo['cisloOrientacni'] != null ? '/${sidlo['cisloOrientacni']}' : '';
+          final obec = sidlo['nazevObce'] ?? '';
+          final psc = (sidlo['psc'] != null) ? sidlo['psc'].toString() : '';
+
+          // Pokud náhodou struktura chybí a je tam jen textová adresa (záchrana)
+          if (ulice.isEmpty && sidlo['textovaAdresa'] != null) {
+            _uliceController.text = sidlo['textovaAdresa'];
+            _mestoController.clear();
+            _pscController.clear();
+          } else {
+            _uliceController.text = '$ulice$cp$co'.trim();
+            _mestoController.text = obec;
+            _pscController.text = psc;
+          }
         });
         ScaffoldMessenger.of(context).showSnackBar(
           const SnackBar(
@@ -417,7 +446,11 @@ class _MainWizardPageState extends State<MainWizardPage> {
             _vybranyZakaznikId = zakaznik['id_zakaznika'];
             _jmenoController.text = zakaznik['jmeno'] ?? '';
             _icoController.text = zakaznik['ico'] ?? '';
-            _adresaController.text = zakaznik['adresa'] ?? '';
+            
+            _uliceController.text = zakaznik['ulice']?.toString() ?? (zakaznik['adresa']?.toString() ?? '');
+            _mestoController.text = zakaznik['mesto']?.toString() ?? '';
+            _pscController.text = zakaznik['psc']?.toString() ?? '';
+            
             _telefonController.text = zakaznik['telefon'] ?? '';
             _emailZController.text = zakaznik['email'] ?? '';
           });
@@ -557,6 +590,13 @@ class _MainWizardPageState extends State<MainWizardPage> {
     if (stav['poskozeni'] is List) { poskozeniPdfText = (stav['poskozeni'] as List).join(', '); } 
     else if (stav['poskozeni'] != null) { poskozeniPdfText = stav['poskozeni'].toString(); }
 
+    // Sestavení adresy pro PDF z rozdělených políček
+    String ulice = zakaznik['ulice']?.toString() ?? '';
+    String mesto = zakaznik['mesto']?.toString() ?? '';
+    String psc = zakaznik['psc']?.toString() ?? '';
+    String finalniAdresa = '$ulice, $psc $mesto'.trim();
+    if (finalniAdresa == ',') finalniAdresa = '-'; // Záchrana pokud je vše prázdné
+
     pdf.addPage(
       pw.MultiPage(
         pageFormat: PdfPageFormat.a4, margin: const pw.EdgeInsets.all(40),
@@ -573,7 +613,7 @@ class _MainWizardPageState extends State<MainWizardPage> {
             pw.Container(padding: const pw.EdgeInsets.all(10), decoration: pw.BoxDecoration(color: PdfColors.blue50, borderRadius: pw.BorderRadius.circular(8)), child: pw.Column(crossAxisAlignment: pw.CrossAxisAlignment.start, children: [
                   pw.Text('Údaje o zákazníkovi', style: pw.TextStyle(font: fontBold, fontSize: 12, color: PdfColors.blue800)), pw.SizedBox(height: 5),
                   _buildCompactRowPdf('Jméno / Firma:', zakaznik['jmeno']?.toString() ?? '-', 'IČO:', zakaznik['ico']?.toString() ?? '-', fontRegular, fontBold),
-                  _buildCompactRowPdf('Adresa:', zakaznik['adresa']?.toString() ?? '-', 'Telefon:', zakaznik['telefon']?.toString() ?? '-', fontRegular, fontBold),
+                  _buildCompactRowPdf('Adresa:', finalniAdresa, 'Telefon:', zakaznik['telefon']?.toString() ?? '-', fontRegular, fontBold),
                   _buildCompactRowPdf('E-mail:', zakaznik['email']?.toString() ?? '-', '', '', fontRegular, fontBold),
                 ])),
             pw.SizedBox(height: 15),
@@ -671,6 +711,13 @@ class _MainWizardPageState extends State<MainWizardPage> {
 
     String zakaznikId =
         _vybranyZakaznikId ?? 'ZAK_${DateTime.now().millisecondsSinceEpoch}';
+    
+    // Sloučení adresy pro starší formáty
+    String ulice = _uliceController.text.trim();
+    String mesto = _mestoController.text.trim();
+    String psc = _pscController.text.trim();
+    String kombinovanaAdresa = '$ulice, $psc $mesto'.trim().replaceAll(RegExp(r'^, |,$'), '');
+
     if (_jmenoController.text.trim().isNotEmpty) {
       await FirebaseFirestore.instance
           .collection('zakaznici')
@@ -680,7 +727,10 @@ class _MainWizardPageState extends State<MainWizardPage> {
             'id_zakaznika': zakaznikId,
             'jmeno': _jmenoController.text.trim(),
             'ico': _icoController.text.trim(),
-            'adresa': _adresaController.text.trim(),
+            'ulice': ulice,
+            'mesto': mesto,
+            'psc': psc,
+            'adresa': kombinovanaAdresa, // Uloženo i kombinovaně kvůli zpětné kompatibilitě
             'telefon': _telefonController.text.trim(),
             'email': _emailZController.text.trim(),
             'posledni_navsteva': FieldValue.serverTimestamp(),
@@ -728,7 +778,10 @@ class _MainWizardPageState extends State<MainWizardPage> {
         'id_zakaznika': zakaznikId,
         'jmeno': _jmenoController.text.trim(),
         'ico': _icoController.text.trim(),
-        'adresa': _adresaController.text.trim(),
+        'ulice': ulice,
+        'mesto': mesto,
+        'psc': psc,
+        'adresa': kombinovanaAdresa,
         'telefon': _telefonController.text.trim(),
         'email': _emailZController.text.trim(),
       },
@@ -800,7 +853,9 @@ class _MainWizardPageState extends State<MainWizardPage> {
   void _resetForm() {
     _jmenoController.clear();
     _icoController.clear();
-    _adresaController.clear();
+    _uliceController.clear();
+    _mestoController.clear();
+    _pscController.clear();
     _telefonController.clear();
     _emailZController.clear();
     _vybranyZakaznikId = null;
@@ -1267,8 +1322,26 @@ class _MainWizardPageState extends State<MainWizardPage> {
             ),
           ],
         ),
+        
+        // --- NOVÉ: Rozdělená adresa ---
         const SizedBox(height: 20),
-        _buildInput('Adresa', Icons.location_on, _adresaController, isDark),
+        _buildInput('Ulice a číslo', Icons.location_on, _uliceController, isDark),
+        const SizedBox(height: 20),
+        Row(
+          children: [
+            Expanded(
+              flex: 2,
+              child: _buildInput('Město', Icons.location_city, _mestoController, isDark),
+            ),
+            const SizedBox(width: 15),
+            Expanded(
+              flex: 1,
+              child: _buildInput('PSČ', Icons.markunread_mailbox, _pscController, isDark, numbersOnly: true),
+            ),
+          ],
+        ),
+        // ------------------------------
+        
         const SizedBox(height: 20),
         _buildInput(
           'Telefonní číslo',
@@ -1841,6 +1914,9 @@ class _MainWizardPageState extends State<MainWizardPage> {
               children: [
                 Text('Zákazník: ${_jmenoController.text.isEmpty ? 'Neuvedeno' : _jmenoController.text}', style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 16)),
                 const SizedBox(height: 5),
+                // --- Zobrazení rozdělené adresy v shrnutí ---
+                Text('Adresa: ${_uliceController.text.isNotEmpty ? "${_uliceController.text}, " : ""}${_pscController.text} ${_mestoController.text}', style: const TextStyle(fontSize: 14, color: Colors.grey)),
+                const SizedBox(height: 10),
                 Text('Vozidlo: ${_spzController.text.toUpperCase()} ${_znackaController.text}', style: const TextStyle(fontSize: 16)),
                 
                 if (validniPozadavky.isNotEmpty) ...[
@@ -1866,7 +1942,6 @@ class _MainWizardPageState extends State<MainWizardPage> {
           ),
           const SizedBox(height: 30),
 
-          // --- PŘESUNUTO A VYLEPŠENO: Zaškrtávátko pro e-mail na posledním kroku ---
           Container(
             decoration: BoxDecoration(
               color: isDark ? const Color(0xFF1E1E1E) : Colors.blue.withOpacity(0.05),
@@ -1895,7 +1970,6 @@ class _MainWizardPageState extends State<MainWizardPage> {
             ),
           ),
           const SizedBox(height: 30),
-          // ------------------------------------------------------
 
           const Text(
             'Zákazník svým podpisem stvrzuje správnost výše uvedených údajů a souhlasí se stavem vozidla při převzetí do servisu.',

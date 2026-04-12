@@ -87,7 +87,7 @@ class _MainScreenState extends State<MainScreen> {
           NavigationDestination(
             icon: Icon(Icons.build_circle_outlined),
             selectedIcon: Icon(Icons.build_circle),
-            label: 'Průběh',
+            label: 'Zakázky',
           ),
           NavigationDestination(
             icon: Icon(Icons.history_rounded),

@@ -45,7 +45,7 @@ class _ServiceProgressPageState extends State<ServiceProgressPage> {
             crossAxisAlignment: CrossAxisAlignment.start,
             children: [
               const Text(
-                'Průběh servisu',
+                'Zakázky',
                 style: TextStyle(fontSize: 32, fontWeight: FontWeight.bold),
               ),
               const SizedBox(height: 10),
