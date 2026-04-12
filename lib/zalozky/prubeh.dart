@@ -229,7 +229,7 @@ class _ServiceProgressPageState extends State<ServiceProgressPage> {
   }
 }
 
-class ActiveJobScreen extends StatelessWidget {
+class ActiveJobScreen extends StatefulWidget {
   final String documentId;
   final String zakazkaId;
   final String spz;
@@ -241,6 +241,11 @@ class ActiveJobScreen extends StatelessWidget {
     required this.spz,
   });
 
+  @override
+  State<ActiveJobScreen> createState() => _ActiveJobScreenState();
+}
+
+class _ActiveJobScreenState extends State<ActiveJobScreen> {
   String _formatDate(dynamic timestamp) {
     if (timestamp == null) return "Zpracovává se...";
     DateTime dt = (timestamp as Timestamp).toDate();
@@ -257,8 +262,8 @@ class ActiveJobScreen extends StatelessWidget {
       context,
       MaterialPageRoute(
         builder: (context) => AddWorkScreen(
-          documentId: documentId,
-          zakazkaId: zakazkaId,
+          documentId: widget.documentId,
+          zakazkaId: widget.zakazkaId,
           initialTitle: initialTitle,
           existingWork: existingWork,
           editIndex: editIndex,
@@ -290,19 +295,20 @@ class ActiveJobScreen extends StatelessWidget {
         ],
       ),
     );
-    if (confirm == true)
+    if (confirm == true) {
       await FirebaseFirestore.instance
           .collection('zakazky')
-          .doc(documentId)
+          .doc(widget.documentId)
           .update({
             'provedene_prace': FieldValue.arrayRemove([workItem]),
           });
+    }
   }
 
   Future<void> _zmenitStav(BuildContext context, String novyStav) async {
     await FirebaseFirestore.instance
         .collection('zakazky')
-        .doc(documentId)
+        .doc(widget.documentId)
         .update({'stav_zakazky': novyStav});
   }
 
@@ -417,7 +423,7 @@ class ActiveJobScreen extends StatelessWidget {
 
       String fileName = 'naceneni_${DateTime.now().millisecondsSinceEpoch}.pdf';
       Reference pdfRef = FirebaseStorage.instance.ref().child(
-        'servisy/${user.uid}/zakazky/$zakazkaId/$fileName',
+        'servisy/${user.uid}/zakazky/${widget.zakazkaId}/$fileName',
       );
       await pdfRef.putData(
         pdfBytes,
@@ -430,12 +436,12 @@ class ActiveJobScreen extends StatelessWidget {
         'from': '$odesilatelJmeno (přes Torkis) <jan.svihalek00@gmail.com>',
         'replyTo': user.email,
         'message': {
-          'subject': 'Nacenění opravy vozidla $spz - $odesilatelJmeno',
+          'subject': 'Nacenění opravy vozidla ${widget.spz} - $odesilatelJmeno',
           'html':
               '''
             <div style="font-family: Arial, sans-serif; color: #333; max-width: 600px; margin: 0 auto; border: 1px solid #eee; padding: 20px; border-radius: 10px;">
               <h2 style="color: #2196F3;">Dobrý den,</h2>
-              <p>k Vašemu vozidlu <b>$spz</b> jsme zpracovali nacenění plánovaných oprav.</p>
+              <p>k Vašemu vozidlu <b>${widget.spz}</b> jsme zpracovali nacenění plánovaných oprav.</p>
               <div style="text-align: center; margin: 30px 0;">
                 <a href="$pdfUrl" style="background-color: #2196F3; color: white; padding: 15px 30px; text-decoration: none; border-radius: 5px; font-weight: bold;">Zobrazit Nacenění (PDF)</a>
               </div>
@@ -473,8 +479,10 @@ class ActiveJobScreen extends StatelessWidget {
     Map<String, dynamic> zakaznik,
     Map<String, dynamic> imageUrls,
   ) {
-    String vybranaPlatba = 'Převodem';
-    final moznostiPlatby = ['Převodem', 'Hotově', 'Kartou'];
+    // Definujeme možnosti přesně
+    final List<String> moznostiPlatby = ['Převodem', 'Hotově', 'Kartou'];
+    // Nastavíme výchozí hodnotu, která v tom seznamu 100% je
+    String vybranaPlatba = moznostiPlatby[0];
     bool isFinishing = false;
 
     showDialog(
@@ -499,7 +507,7 @@ class ActiveJobScreen extends StatelessWidget {
                         CircularProgressIndicator(),
                         SizedBox(height: 15),
                         Text(
-                          'Generuji PDF a odesílám e-mail...',
+                          'Ukončuji zakázku...',
                           style: TextStyle(
                             color: Colors.blue,
                             fontWeight: FontWeight.bold,
@@ -525,20 +533,24 @@ class ActiveJobScreen extends StatelessWidget {
                     child: DropdownButton<String>(
                       value: vybranaPlatba,
                       isExpanded: true,
-                      items: moznostiPlatby
-                          .map(
-                            (p) => DropdownMenuItem(value: p, child: Text(p)),
-                          )
-                          .toList(),
+                      // Důležité: Mapujeme položky ze seznamu, který jsme si nahoře definovali
+                      items: moznostiPlatby.map((String value) {
+                        return DropdownMenuItem<String>(
+                          value: value,
+                          child: Text(value),
+                        );
+                      }).toList(),
                       onChanged: (val) {
-                        if (val != null) setState(() => vybranaPlatba = val);
+                        if (val != null) {
+                          setState(() => vybranaPlatba = val);
+                        }
                       },
                     ),
                   ),
                 ),
                 const SizedBox(height: 20),
                 const Text(
-                  'Zakázka se přesune do Historie. Zákazníkovi se automaticky vygeneruje a odešle PDF vyúčtování.',
+                  'Zakázka se přesune do Historie a vytvoří se záznam v databázi faktur.',
                 ),
                 const SizedBox(height: 15),
                 ElevatedButton.icon(
@@ -560,34 +572,6 @@ class ActiveJobScreen extends StatelessWidget {
                     backgroundColor: Colors.blue,
                     foregroundColor: Colors.white,
                     padding: const EdgeInsets.symmetric(vertical: 15),
-                  ),
-                ),
-                const SizedBox(height: 10),
-                OutlinedButton.icon(
-                  onPressed: () async {
-                    setState(() => isFinishing = true);
-                    await _zpracovatUkonceni(
-                      context,
-                      'zruseno',
-                      '',
-                      data,
-                      stav,
-                      zakaznik,
-                      imageUrls,
-                      zruseno: true,
-                    );
-                  },
-                  icon: const Icon(Icons.cancel, color: Colors.red),
-                  label: const Text(
-                    'Nerealizuje se (Zrušit)',
-                    style: TextStyle(
-                      color: Colors.red,
-                      fontWeight: FontWeight.bold,
-                    ),
-                  ),
-                  style: OutlinedButton.styleFrom(
-                    padding: const EdgeInsets.symmetric(vertical: 15),
-                    side: const BorderSide(color: Colors.red),
                   ),
                 ),
               ],
@@ -621,6 +605,21 @@ class ActiveJobScreen extends StatelessWidget {
     try {
       String pdfUrl = '';
 
+      double celkovaSuma = 0.0;
+      final provedenePrace = data['provedene_prace'] as List<dynamic>? ?? [];
+      for (var prace in provedenePrace) {
+        celkovaSuma += (prace['cena_s_dph'] ?? 0.0).toDouble();
+        final dily = prace['pouzite_dily'] as List<dynamic>? ?? [];
+        for (var dil in dily) {
+          double p = (double.tryParse(dil['pocet'].toString()) ?? 1.0);
+          double c = (double.tryParse(dil['cena_s_dph'].toString()) ?? 0.0);
+          celkovaSuma += (p * c);
+        }
+      }
+
+      String cisloIba = widget.zakazkaId.replaceAll(RegExp(r'[^0-9]'), '');
+      String cisloFaktury = 'FAK$cisloIba';
+
       if (!zruseno) {
         String odesilatelJmeno = 'Servis';
         String odesilatelIco = '';
@@ -641,7 +640,7 @@ class ActiveJobScreen extends StatelessWidget {
         );
 
         Reference pdfRef = FirebaseStorage.instance.ref().child(
-          'servisy/${user.uid}/zakazky/$zakazkaId/finalni_vyuctovani_$zakazkaId.pdf',
+          'servisy/${user.uid}/zakazky/${widget.zakazkaId}/finalni_vyuctovani_${widget.zakazkaId}.pdf',
         );
         await pdfRef.putData(
           pdfBytes,
@@ -657,29 +656,54 @@ class ActiveJobScreen extends StatelessWidget {
             'replyTo': user.email,
             'message': {
               'subject':
-                  'Vozidlo $spz je připraveno k vyzvednutí - $odesilatelJmeno',
+                  'Vozidlo ${widget.spz} je připraveno k vyzvednutí - $odesilatelJmeno',
               'html':
                   '''
-                <div style="font-family: Arial, sans-serif; color: #333; max-width: 600px; margin: 0 auto; border: 1px solid #eee; padding: 20px; border-radius: 10px;">
-                  <h2 style="color: #2196F3; border-bottom: 2px solid #2196F3; padding-bottom: 10px;">Dobrý den,</h2>
-                  <p>Vaše vozidlo <b>$spz</b> je připraveno k vyzvednutí!</p>
-                  <p>V příloze Vám zasíláme odkaz na finální vyúčtování a předávací protokol k Vaší zakázce.</p>
-                  <div style="text-align: center; margin: 30px 0;">
-                    <a href="$pdfUrl" style="background-color: #2196F3; color: white; padding: 15px 30px; text-decoration: none; border-radius: 5px; font-weight: bold; font-size: 16px; display: inline-block;">Zobrazit a stáhnout vyúčtování</a>
-                  </div>
-                  <p>Těšíme se na Vaši návštěvu a přejeme spoustu šťastných kilometrů.</p>
-                  <hr style="border: 0; border-top: 1px solid #eee; margin: 20px 0;">
-                  <p style="font-size: 12px; color: #777;">Tento e-mail byl vygenerován automaticky systémem <b>Torkis.cz</b> pro servis <b>$odesilatelJmeno</b>.</p>
+                <div style="font-family: Arial, sans-serif; padding: 20px;">
+                  <h2>Dobrý den,</h2>
+                  <p>Vaše vozidlo <b>${widget.spz}</b> je připraveno k vyzvednutí!</p>
+                  <p>Faktura ke stažení: <a href="$pdfUrl">ZDE</a></p>
+                  <p>Těšíme se na Vaši návštěvu.</p>
                 </div>
               ''',
             },
           });
         }
+
+        if (zpusob == 'faktura') {
+          DateTime now = DateTime.now();
+          DateTime splatnost = (platba == 'Hotově' || platba == 'Kartou')
+              ? now
+              : now.add(const Duration(days: 14));
+
+          String stavPlatby = (platba == 'Hotově' || platba == 'Kartou')
+              ? 'Uhrazeno'
+              : 'Čeká na platbu';
+
+          await FirebaseFirestore.instance
+              .collection('faktury')
+              .doc('${user.uid}_$cisloFaktury')
+              .set({
+                'servis_id': user.uid,
+                'cislo_faktury': cisloFaktury,
+                'cislo_zakazky': widget.zakazkaId,
+                'spz': widget.spz,
+                'zakaznik_id': zakaznik['id_zakaznika'] ?? '',
+                'zakaznik_jmeno': zakaznik['jmeno'] ?? 'Neznámý zákazník',
+                'datum_vystaveni': Timestamp.fromDate(now),
+                'datum_splatnosti': Timestamp.fromDate(splatnost),
+                'forma_uhrady': platba,
+                'celkova_castka': celkovaSuma,
+                'stav_platby': stavPlatby,
+                'pdf_url': pdfUrl,
+                'vytvoreno': FieldValue.serverTimestamp(),
+              });
+        }
       }
 
       await FirebaseFirestore.instance
           .collection('zakazky')
-          .doc(documentId)
+          .doc(widget.documentId)
           .update({
             'stav_zakazky': 'Dokončeno',
             'zpusob_ukonceni': zpusob,
@@ -689,23 +713,24 @@ class ActiveJobScreen extends StatelessWidget {
           });
 
       if (context.mounted) {
-        Navigator.pop(context);
-        Navigator.pop(context);
+        Navigator.of(context, rootNavigator: true).pop();
+        Navigator.of(context).pop();
 
         ScaffoldMessenger.of(context).showSnackBar(
           const SnackBar(
-            content: Text('Zakázka úspěšně ukončena. E-mail odeslán.'),
+            content: Text('Zakázka úspěšně ukončena.'),
             backgroundColor: Colors.green,
           ),
         );
       }
     } catch (e) {
       if (context.mounted) {
-        Navigator.pop(context);
+        Navigator.of(context, rootNavigator: true).pop();
         ScaffoldMessenger.of(context).showSnackBar(
           SnackBar(
-            content: Text('Chyba při ukončování: $e'),
+            content: Text('Chyba: $e'),
             backgroundColor: Colors.red,
+            duration: const Duration(seconds: 10),
           ),
         );
       }
@@ -721,14 +746,14 @@ class ActiveJobScreen extends StatelessWidget {
         backgroundColor: isDark ? const Color(0xFF1A1A1A) : Colors.white,
         elevation: 1,
         title: Text(
-          'Oprava: $zakazkaId ($spz)',
+          'Oprava: ${widget.zakazkaId} (${widget.spz})',
           style: const TextStyle(fontWeight: FontWeight.bold),
         ),
       ),
       body: StreamBuilder<DocumentSnapshot>(
         stream: FirebaseFirestore.instance
             .collection('zakazky')
-            .doc(documentId)
+            .doc(widget.documentId)
             .snapshots(),
         builder: (context, snapshot) {
           if (snapshot.hasError)

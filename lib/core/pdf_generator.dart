@@ -19,6 +19,49 @@ class GlobalPdfGenerator {
     return "-";
   }
 
+  // --- FUNKCE PRO GENEROVÁNÍ QR PLATBY (SPAYD) ---
+  static String _generateSpayd(String banka, double amount, String vs) {
+    try {
+      String cleanBanka = banka.replaceAll(' ', '').toUpperCase();
+      String iban = cleanBanka;
+
+      // Jednoduchý převod klasického CZ účtu na IBAN
+      if (!cleanBanka.startsWith('CZ') && cleanBanka.contains('/')) {
+        final parts = cleanBanka.split('/');
+        if (parts.length == 2) {
+          final bankCode = parts[1].padLeft(4, '0');
+          final accParts = parts[0].split('-');
+          String prefix = '000000';
+          String accNum = '';
+          if (accParts.length == 2) {
+            prefix = accParts[0].padLeft(6, '0');
+            accNum = accParts[1].padLeft(10, '0');
+          } else {
+            accNum = accParts[0].padLeft(10, '0');
+          }
+          final bban = '$bankCode$prefix$accNum';
+
+          final numericString = '${bban}123500';
+          final remainder = BigInt.parse(numericString) % BigInt.from(97);
+          final checkDigits = (98 - remainder.toInt()).toString().padLeft(
+            2,
+            '0',
+          );
+
+          iban = 'CZ$checkDigits$bban';
+        }
+      }
+
+      String cleanVs = vs.replaceAll(RegExp(r'[^0-9]'), '');
+      if (cleanVs.length > 10) cleanVs = cleanVs.substring(0, 10);
+
+      return 'SPD*1.0*ACC:$iban*AM:${amount.toStringAsFixed(2)}*CC:CZK*X-VS:$cleanVs';
+    } catch (e) {
+      debugPrint('Chyba při generování SPAYD: $e');
+      return '';
+    }
+  }
+
   static Future<Uint8List> generateDocument({
     required Map<String, dynamic> data,
     required String servisNazev,
@@ -27,7 +70,6 @@ class GlobalPdfGenerator {
   }) async {
     final pdf = pw.Document();
 
-    // Načtení fontů pro lepší typografii
     final fontRegular = await PdfGoogleFonts.robotoRegular();
     final fontBold = await PdfGoogleFonts.robotoBold();
     final fontMedium = await PdfGoogleFonts.robotoMedium();
@@ -36,23 +78,32 @@ class GlobalPdfGenerator {
     final stavVozidla = data['stav_vozidla'] as Map<String, dynamic>? ?? {};
     final provedenePrace = data['provedene_prace'] as List<dynamic>? ?? [];
     final pozadavky = data['pozadavky_zakaznika'] as List<dynamic>? ?? [];
+    final formaUhrady = data['forma_uhrady']?.toString() ?? 'Převodem';
 
-    // Logika typu dokumentu
+    // --- LOGIKA ČÍSLOVÁNÍ A TYPU DOKLADU ---
     String titulek = "FAKTURA - DAŇOVÝ DOKLAD";
-    String cisloDokladu = data['cislo_zakazky']?.toString() ?? '-';
+    String puvodniCislo = data['cislo_zakazky']?.toString() ?? '-';
+    String cisloDokladu = puvodniCislo;
     bool zobrazitCeny = true;
 
     if (typ == PdfTyp.protokol) {
       titulek = "PROTOKOL O PŘÍJMU";
       zobrazitCeny = false;
+    } else if (typ == PdfTyp.faktura) {
+      titulek = "FAKTURA - DAŇOVÝ DOKLAD";
+      zobrazitCeny = true;
+      // Odstranění všech znaků kromě čísel a spojení bez pomlčky
+      String cisloIba = puvodniCislo.replaceAll(RegExp(r'[^0-9]'), '');
+      cisloDokladu = 'FAK$cisloIba';
     } else if (typ == PdfTyp.naceneni) {
       titulek = "CENOVÁ NABÍDKA";
       zobrazitCeny = true;
+      String cisloIba = puvodniCislo.replaceAll(RegExp(r'[^0-9]'), '');
+      cisloDokladu = 'NAB$cisloIba';
     }
 
     double celkovaSuma = 0.0;
 
-    // --- NAČTENÍ DODATEČNÝCH ÚDAJŮ O SERVISU (DODAVATEL) ---
     String sAdresa = '';
     String sMesto = '';
     String sPsc = '';
@@ -87,7 +138,6 @@ class GlobalPdfGenerator {
       }
     }
 
-    // --- NAČTENÍ LOGA ZNAČKY VOZIDLA ---
     pw.MemoryImage? logoImage;
     final znackaNazev = (data['znacka']?.toString() ?? '').trim();
     if (znackaNazev.isNotEmpty) {
@@ -117,7 +167,6 @@ class GlobalPdfGenerator {
       }
     }
 
-    // --- NAČTENÍ PODPISU ZÁKAZNÍKA (Pouze pro protokol) ---
     pw.MemoryImage? podpisImage;
     if (typ == PdfTyp.protokol) {
       final podpisUrl = data['podpis_url']?.toString();
@@ -132,7 +181,6 @@ class GlobalPdfGenerator {
       }
     }
 
-    // Pomocná funkce pro informační řádky u vozidla
     pw.Widget _buildInfoRow(String label, String value) {
       return pw.Padding(
         padding: const pw.EdgeInsets.only(bottom: 6),
@@ -165,13 +213,31 @@ class GlobalPdfGenerator {
       );
     }
 
+    // --- PŘEDVÝPOČET QR KÓDU (Tímto se vyhneme problému s pw.Builder) ---
+    // Celkovou sumu vypočítáme nejdříve, abychom z ní mohli udělat QR kód
+    for (var prace in provedenePrace) {
+      celkovaSuma += (prace['cena_s_dph'] ?? 0.0).toDouble();
+      final dily = prace['pouzite_dily'] as List<dynamic>? ?? [];
+      for (var dil in dily) {
+        double p = (double.tryParse(dil['pocet'].toString()) ?? 1.0);
+        double c = (double.tryParse(dil['cena_s_dph'].toString()) ?? 0.0);
+        celkovaSuma += (p * c);
+      }
+    }
+
+    final spaydStr = _generateSpayd(sBanka, celkovaSuma, puvodniCislo);
+    final ukazQr =
+        typ == PdfTyp.faktura &&
+        formaUhrady.toLowerCase().contains('převod') &&
+        celkovaSuma > 0 &&
+        spaydStr.isNotEmpty;
+
     pdf.addPage(
       pw.MultiPage(
         pageFormat: PdfPageFormat.a4,
         margin: const pw.EdgeInsets.symmetric(horizontal: 40, vertical: 40),
         theme: pw.ThemeData.withFont(base: fontRegular, bold: fontBold),
         build: (pw.Context context) => [
-          // --- HLAVIČKA (Typ dokumentu a Číslo) ---
           pw.Row(
             crossAxisAlignment: pw.CrossAxisAlignment.start,
             mainAxisAlignment: pw.MainAxisAlignment.spaceBetween,
@@ -211,11 +277,9 @@ class GlobalPdfGenerator {
           ),
           pw.SizedBox(height: 30),
 
-          // --- MODERNÍ INFORMAČNÍ KARTY (Dodavatel vs Odběratel) ---
           pw.Row(
             crossAxisAlignment: pw.CrossAxisAlignment.start,
             children: [
-              // DODAVATEL (Tento Servis)
               pw.Expanded(
                 child: pw.Container(
                   padding: const pw.EdgeInsets.all(15),
@@ -305,7 +369,6 @@ class GlobalPdfGenerator {
               ),
               pw.SizedBox(width: 20),
 
-              // ODBĚRATEL (Zákazník)
               pw.Expanded(
                 child: pw.Container(
                   padding: const pw.EdgeInsets.all(15),
@@ -388,7 +451,6 @@ class GlobalPdfGenerator {
           ),
           pw.SizedBox(height: 20),
 
-          // --- KARTA VOZIDLA ---
           pw.Container(
             padding: const pw.EdgeInsets.all(15),
             decoration: pw.BoxDecoration(
@@ -396,57 +458,53 @@ class GlobalPdfGenerator {
               borderRadius: pw.BorderRadius.circular(8),
               border: pw.Border.all(color: PdfColors.grey200),
             ),
-            child: pw.Row(
+            child: pw.Column(
               crossAxisAlignment: pw.CrossAxisAlignment.start,
-              mainAxisAlignment: pw.MainAxisAlignment.spaceBetween,
               children: [
-                pw.Expanded(
-                  child: pw.Column(
-                    crossAxisAlignment: pw.CrossAxisAlignment.start,
-                    children: [
-                      pw.Text(
-                        'VOZIDLO & ZAKÁZKA',
-                        style: pw.TextStyle(
-                          font: fontBold,
-                          fontSize: 10,
-                          color: PdfColors.blue700,
-                          letterSpacing: 1,
+                pw.Row(
+                  mainAxisAlignment: pw.MainAxisAlignment.spaceBetween,
+                  crossAxisAlignment: pw.CrossAxisAlignment.start,
+                  children: [
+                    pw.Column(
+                      crossAxisAlignment: pw.CrossAxisAlignment.start,
+                      children: [
+                        pw.Text(
+                          'VOZIDLO & ZAKÁZKA',
+                          style: pw.TextStyle(
+                            font: fontBold,
+                            fontSize: 10,
+                            color: PdfColors.blue700,
+                            letterSpacing: 1,
+                          ),
                         ),
-                      ),
-                      pw.SizedBox(height: 10),
-                      pw.Text(
-                        '${data['znacka'] ?? ''} ${data['model'] ?? ''}',
-                        style: pw.TextStyle(
-                          font: fontBold,
-                          fontSize: 13,
-                          color: PdfColors.grey900,
+                        pw.SizedBox(height: 10),
+                        pw.Text(
+                          '${data['znacka'] ?? ''} ${data['model'] ?? ''}',
+                          style: pw.TextStyle(
+                            font: fontBold,
+                            fontSize: 13,
+                            color: PdfColors.grey900,
+                          ),
                         ),
+                      ],
+                    ),
+                    if (logoImage != null)
+                      pw.Container(
+                        width: 40,
+                        height: 40,
+                        child: pw.Image(logoImage, fit: pw.BoxFit.contain),
                       ),
-                      pw.SizedBox(height: 6),
-                      _buildInfoRow('SPZ:', data['spz'] ?? ''),
-                      _buildInfoRow('VIN:', data['vin'] ?? '-'),
-                      _buildInfoRow(
-                        'Přijato:',
-                        _formatDate(data['cas_prijeti']),
-                      ),
-                    ],
-                  ),
+                  ],
                 ),
-                // Zobrazení loga značky
-                if (logoImage != null) ...[
-                  pw.SizedBox(width: 10),
-                  pw.Container(
-                    width: 50,
-                    height: 50,
-                    child: pw.Image(logoImage, fit: pw.BoxFit.contain),
-                  ),
-                ],
+                pw.SizedBox(height: 6),
+                _buildInfoRow('SPZ:', data['spz'] ?? ''),
+                _buildInfoRow('VIN:', data['vin'] ?? '-'),
+                _buildInfoRow('Přijato:', _formatDate(data['cas_prijeti'])),
               ],
             ),
           ),
           pw.SizedBox(height: 20),
 
-          // --- DETAILNÍ STAV VOZIDLA (Jen pro protokol) ---
           if (typ == PdfTyp.protokol) ...[
             pw.Container(
               padding: const pw.EdgeInsets.all(12),
@@ -523,7 +581,6 @@ class GlobalPdfGenerator {
             pw.SizedBox(height: 25),
           ],
 
-          // --- MODERNÍ TABULKA ÚKONŮ ---
           pw.Text(
             zobrazitCeny ? 'ROZPIS POLOŽEK' : 'POŽADOVANÉ ÚKONY',
             style: pw.TextStyle(
@@ -542,7 +599,6 @@ class GlobalPdfGenerator {
               if (zobrazitCeny) 2: const pw.FlexColumnWidth(1.5),
             },
             children: [
-              // Záhlaví tabulky
               pw.TableRow(
                 decoration: pw.BoxDecoration(
                   border: pw.Border(
@@ -599,7 +655,6 @@ class GlobalPdfGenerator {
                 ],
               ),
 
-              // Řádky pro Protokol
               if (!zobrazitCeny)
                 ...pozadavky.map(
                   (p) => pw.TableRow(
@@ -645,15 +700,12 @@ class GlobalPdfGenerator {
                   ),
                 ),
 
-              // Řádky pro Fakturu/Nacenění
               if (zobrazitCeny)
                 ...provedenePrace.expand((prace) {
                   double cPrace = (prace['cena_s_dph'] ?? 0.0).toDouble();
-                  celkovaSuma += cPrace;
                   final dily = prace['pouzite_dily'] as List<dynamic>? ?? [];
 
                   return [
-                    // Hlavní úkon (Práce)
                     pw.TableRow(
                       children: [
                         pw.Padding(
@@ -699,7 +751,6 @@ class GlobalPdfGenerator {
                         ),
                       ],
                     ),
-                    // Podpoložky (Díly pod prací)
                     ...dily.map((dil) {
                       double p =
                           (double.tryParse(dil['pocet'].toString()) ?? 1.0);
@@ -707,7 +758,6 @@ class GlobalPdfGenerator {
                           (double.tryParse(dil['cena_s_dph'].toString()) ??
                           0.0);
                       double s = p * c;
-                      celkovaSuma += s;
 
                       return pw.TableRow(
                         children: [
@@ -763,7 +813,6 @@ class GlobalPdfGenerator {
                         ],
                       );
                     }),
-                    // Jemná oddělovací linka za každým celým úkonem
                     pw.TableRow(
                       decoration: pw.BoxDecoration(
                         border: pw.Border(
@@ -784,60 +833,89 @@ class GlobalPdfGenerator {
             ],
           ),
 
-          // --- PLATEBNÍ ÚDAJE A VÝRAZNÁ SUMA ---
+          // --- PLATEBNÍ ÚDAJE VČETNĚ QR KÓDU A SUMY ---
           if (zobrazitCeny) ...[
             pw.SizedBox(height: 20),
             pw.Row(
               mainAxisAlignment: pw.MainAxisAlignment.spaceBetween,
-              crossAxisAlignment: pw.CrossAxisAlignment.end,
+              crossAxisAlignment: pw.CrossAxisAlignment.center,
               children: [
-                // Platební údaje (Pokud je to faktura a máme banku)
-                if (typ == PdfTyp.faktura && sBanka.isNotEmpty)
-                  pw.Container(
-                    width: 220,
-                    padding: const pw.EdgeInsets.all(12),
-                    decoration: pw.BoxDecoration(
-                      color: PdfColor.fromHex('#F8FAFC'),
-                      borderRadius: pw.BorderRadius.circular(8),
-                      border: pw.Border.all(color: PdfColors.grey200),
-                    ),
-                    child: pw.Column(
-                      crossAxisAlignment: pw.CrossAxisAlignment.start,
-                      children: [
-                        pw.Text(
-                          'PLATEBNÍ ÚDAJE',
-                          style: pw.TextStyle(
-                            font: fontBold,
-                            fontSize: 9,
-                            color: PdfColors.grey600,
-                            letterSpacing: 0.5,
-                          ),
+                // Platební blok s QR (Tady jsem odstranil pw.Expanded a pw.Builder)
+                (typ == PdfTyp.faktura && sBanka.isNotEmpty)
+                    ? pw.Container(
+                        width: 270,
+                        padding: const pw.EdgeInsets.all(12),
+                        decoration: pw.BoxDecoration(
+                          color: PdfColor.fromHex('#F8FAFC'),
+                          borderRadius: pw.BorderRadius.circular(8),
+                          border: pw.Border.all(color: PdfColors.grey200),
                         ),
-                        pw.SizedBox(height: 6),
-                        pw.Text(
-                          'Bankovní účet: $sBanka',
-                          style: pw.TextStyle(font: fontBold, fontSize: 10),
+                        child: pw.Row(
+                          mainAxisAlignment: pw.MainAxisAlignment.spaceBetween,
+                          crossAxisAlignment: pw.CrossAxisAlignment.center,
+                          children: [
+                            pw.Column(
+                              crossAxisAlignment: pw.CrossAxisAlignment.start,
+                              children: [
+                                pw.Text(
+                                  'PLATEBNÍ ÚDAJE',
+                                  style: pw.TextStyle(
+                                    font: fontBold,
+                                    fontSize: 9,
+                                    color: PdfColors.grey600,
+                                    letterSpacing: 0.5,
+                                  ),
+                                ),
+                                pw.SizedBox(height: 6),
+                                pw.Text(
+                                  'Banka: $sBanka',
+                                  style: pw.TextStyle(
+                                    font: fontBold,
+                                    fontSize: 10,
+                                  ),
+                                ),
+                                pw.SizedBox(height: 4),
+                                pw.Text(
+                                  'Var. symbol: ${puvodniCislo.replaceAll(RegExp(r'[^0-9]'), '')}',
+                                  style: pw.TextStyle(
+                                    font: fontMedium,
+                                    fontSize: 10,
+                                  ),
+                                ),
+                                pw.SizedBox(height: 4),
+                                pw.Text(
+                                  'Úhrada: $formaUhrady',
+                                  style: pw.TextStyle(
+                                    font: fontRegular,
+                                    fontSize: 10,
+                                  ),
+                                ),
+                              ],
+                            ),
+                            if (ukazQr) ...[
+                              pw.SizedBox(width: 10),
+                              pw.Container(
+                                width: 65,
+                                height: 65,
+                                child: pw.BarcodeWidget(
+                                  barcode: pw.Barcode.qrCode(),
+                                  data: spaydStr,
+                                  color: PdfColors.black,
+                                  drawText:
+                                      false, // <-- TOHLE ZABRÁNÍ PÁDU QR KÓDU
+                                ),
+                              ),
+                            ],
+                          ],
                         ),
-                        pw.SizedBox(height: 4),
-                        pw.Text(
-                          'Variabilní symbol: ${cisloDokladu.replaceAll(RegExp(r'[^0-9]'), '')}',
-                          style: pw.TextStyle(font: fontMedium, fontSize: 10),
-                        ),
-                        pw.SizedBox(height: 4),
-                        pw.Text(
-                          'Forma úhrady: ${data['forma_uhrady'] ?? 'Převodem'}',
-                          style: pw.TextStyle(font: fontRegular, fontSize: 10),
-                        ),
-                      ],
-                    ),
-                  )
-                else
-                  pw.SizedBox(), // Prázdné místo pro zarovnání doprava
+                      )
+                    : pw.SizedBox(),
+
                 // Suma
                 pw.Container(
-                  width: 250,
+                  width: 220,
                   padding: const pw.EdgeInsets.symmetric(
-                    vertical: 12,
+                    vertical: 15,
                     horizontal: 15,
                   ),
                   decoration: pw.BoxDecoration(
@@ -873,7 +951,6 @@ class GlobalPdfGenerator {
 
           pw.Spacer(),
 
-          // --- PATIČKA ---
           pw.Divider(color: PdfColors.grey300, thickness: 0.5),
           pw.SizedBox(height: 10),
           pw.Row(
@@ -913,7 +990,6 @@ class GlobalPdfGenerator {
                   ),
                 ],
               ),
-              // Zobrazení podpisu (POUZE PRO PROTOKOL)
               if (typ == PdfTyp.protokol)
                 pw.Column(
                   crossAxisAlignment: pw.CrossAxisAlignment.end,

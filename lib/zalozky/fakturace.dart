@@ -6,7 +6,7 @@ import 'package:pdf/pdf.dart';
 import 'package:pdf/widgets.dart' as pw;
 import 'package:printing/printing.dart';
 import 'dart:typed_data';
-import '../core/pdf_generator.dart'; // IMPORT NAŠEHO GENERÁTORU
+import '../core/pdf_generator.dart';
 
 class FakturacePage extends StatefulWidget {
   const FakturacePage({super.key});
@@ -19,9 +19,112 @@ class _FakturacePageState extends State<FakturacePage> {
   String _searchQuery = '';
 
   String _formatDate(dynamic timestamp) {
-    if (timestamp == null) return "Zpracovává se...";
+    if (timestamp == null) return "-";
     DateTime dt = (timestamp as Timestamp).toDate();
     return DateFormat('dd.MM.yyyy').format(dt);
+  }
+
+  Future<void> _oznacitJakoUhrazene(String docId) async {
+    try {
+      await FirebaseFirestore.instance.collection('faktury').doc(docId).update({
+        'stav_platby': 'Uhrazeno',
+      });
+
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(
+            content: Text('Faktura byla označena jako uhrazená.'),
+            backgroundColor: Colors.green,
+          ),
+        );
+      }
+    } catch (e) {
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(
+            content: Text('Chyba při aktualizaci: $e'),
+            backgroundColor: Colors.red,
+          ),
+        );
+      }
+    }
+  }
+
+  Future<void> _zobrazitPdfFaktury(
+    BuildContext context,
+    Map<String, dynamic> fakturaData,
+  ) async {
+    showDialog(
+      context: context,
+      barrierDismissible: false,
+      builder: (context) => const Center(child: CircularProgressIndicator()),
+    );
+
+    try {
+      final user = FirebaseAuth.instance.currentUser;
+      if (user == null) throw Exception('Nejste přihlášeni');
+
+      // Načtení původní zakázky pro vygenerování PDF
+      final zakazkaDoc = await FirebaseFirestore.instance
+          .collection('zakazky')
+          .doc('${user.uid}_${fakturaData['cislo_zakazky']}')
+          .get();
+
+      if (!zakazkaDoc.exists)
+        throw Exception('Původní data zakázky nebyla nalezena.');
+      final zakazkaData = zakazkaDoc.data()!;
+
+      // Načtení detailů servisu
+      String sNazev = 'Servis';
+      String sIco = '';
+      final docNast = await FirebaseFirestore.instance
+          .collection('nastaveni_servisu')
+          .doc(user.uid)
+          .get();
+      if (docNast.exists) {
+        sNazev = docNast.data()?['nazev_servisu'] ?? 'Servis';
+        sIco = docNast.data()?['ico_servisu'] ?? '';
+      }
+
+      // Vygenerování PDF
+      final pdfBytes = await GlobalPdfGenerator.generateDocument(
+        data: zakazkaData,
+        servisNazev: sNazev,
+        servisIco: sIco,
+        typ: PdfTyp.faktura,
+      );
+
+      if (context.mounted) {
+        Navigator.pop(context); // Zavření načítacího kolečka
+        Navigator.push(
+          context,
+          MaterialPageRoute(
+            builder: (context) => Scaffold(
+              appBar: AppBar(
+                title: Text('Faktura ${fakturaData['cislo_faktury']}'),
+              ),
+              body: PdfPreview(
+                build: (format) => pdfBytes,
+                allowSharing: true,
+                allowPrinting: true,
+                canChangeOrientation: false,
+                canChangePageFormat: false,
+              ),
+            ),
+          ),
+        );
+      }
+    } catch (e) {
+      if (context.mounted) {
+        Navigator.pop(context); // Zavření načítacího kolečka
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(
+            content: Text('Nepodařilo se načíst PDF: $e'),
+            backgroundColor: Colors.red,
+          ),
+        );
+      }
+    }
   }
 
   @override
@@ -45,7 +148,7 @@ class _FakturacePageState extends State<FakturacePage> {
               ),
               const SizedBox(height: 10),
               const Text(
-                'Vystavování faktur k dokončeným zakázkám.',
+                'Přehled vystavených faktur a sledování plateb.',
                 style: TextStyle(color: Colors.grey),
               ),
               const SizedBox(height: 15),
@@ -65,7 +168,7 @@ class _FakturacePageState extends State<FakturacePage> {
                   onChanged: (value) =>
                       setState(() => _searchQuery = value.toLowerCase()),
                   decoration: InputDecoration(
-                    hintText: 'Hledat SPZ, zákazníka nebo číslo zakázky...',
+                    hintText: 'Hledat číslo faktury, SPZ nebo jméno...',
                     prefixIcon: const Icon(Icons.search, color: Colors.blue),
                     filled: true,
                     fillColor: isDark ? const Color(0xFF1E1E1E) : Colors.white,
@@ -99,10 +202,10 @@ class _FakturacePageState extends State<FakturacePage> {
         ),
         Expanded(
           child: StreamBuilder<QuerySnapshot>(
+            // Načítáme rovnou z nové kolekce faktury
             stream: FirebaseFirestore.instance
-                .collection('zakazky')
+                .collection('faktury')
                 .where('servis_id', isEqualTo: user.uid)
-                .where('stav_zakazky', isEqualTo: 'Dokončeno')
                 .snapshots(),
             builder: (context, snapshot) {
               if (snapshot.hasError)
@@ -113,27 +216,23 @@ class _FakturacePageState extends State<FakturacePage> {
               final docs = snapshot.data!.docs.where((doc) {
                 final data = doc.data() as Map<String, dynamic>;
 
-                final zpusob = data['zpusob_ukonceni'];
-                if (zpusob == 'bez_faktury' || zpusob == 'zruseno')
-                  return false;
-
                 final cislo =
-                    data['cislo_zakazky']?.toString().toLowerCase() ?? '';
+                    data['cislo_faktury']?.toString().toLowerCase() ?? '';
                 final spz = data['spz']?.toString().toLowerCase() ?? '';
-                final zakaznikJmeno = (data['zakaznik']?['jmeno'] ?? '')
-                    .toString()
-                    .toLowerCase();
+                final zakaznik =
+                    data['zakaznik_jmeno']?.toString().toLowerCase() ?? '';
+
                 return cislo.contains(_searchQuery) ||
                     spz.contains(_searchQuery) ||
-                    zakaznikJmeno.contains(_searchQuery);
+                    zakaznik.contains(_searchQuery);
               }).toList();
 
-              // Řazení lokálně
+              // Řazení od nejnovějších
               docs.sort((a, b) {
                 final dataA = a.data() as Map<String, dynamic>;
                 final dataB = b.data() as Map<String, dynamic>;
-                final timeA = dataA['cas_prijeti'] as Timestamp?;
-                final timeB = dataB['cas_prijeti'] as Timestamp?;
+                final timeA = dataA['datum_vystaveni'] as Timestamp?;
+                final timeB = dataB['datum_vystaveni'] as Timestamp?;
 
                 if (timeA == null && timeB == null) return 0;
                 if (timeA == null) return 1;
@@ -155,8 +254,8 @@ class _FakturacePageState extends State<FakturacePage> {
                       const SizedBox(height: 16),
                       Text(
                         _searchQuery.isEmpty
-                            ? 'Žádné dokončené zakázky k fakturaci.'
-                            : 'Nic nenalezeno',
+                            ? 'Zatím nebyly vystaveny žádné faktury.'
+                            : 'Nic nenalezeno.',
                         style: TextStyle(
                           fontSize: 18,
                           color: isDark ? Colors.grey[400] : Colors.grey[600],
@@ -172,20 +271,13 @@ class _FakturacePageState extends State<FakturacePage> {
                 itemCount: docs.length,
                 itemBuilder: (context, index) {
                   final data = docs[index].data() as Map<String, dynamic>;
-                  final zakaznik =
-                      data['zakaznik'] as Map<String, dynamic>? ?? {};
+                  final docId = docs[index].id;
 
-                  double celkovaCenaSDph = 0.0;
-                  final prace = data['provedene_prace'] as List<dynamic>? ?? [];
-                  for (var p in prace) {
-                    celkovaCenaSDph += (p['cena_s_dph'] ?? 0.0).toDouble();
-                    final dily = p['pouzite_dily'] as List<dynamic>? ?? [];
-                    for (var dil in dily) {
-                      double pocet = (dil['pocet'] ?? 1.0).toDouble();
-                      double cenaSDph = (dil['cena_s_dph'] ?? 0.0).toDouble();
-                      celkovaCenaSDph += (pocet * cenaSDph);
-                    }
-                  }
+                  final stavPlatby = data['stav_platby'] ?? 'Neznámý';
+                  final jeUhrazeno = stavPlatby == 'Uhrazeno';
+                  final barvaStavu = jeUhrazeno
+                      ? Colors.green
+                      : Colors.redAccent;
 
                   return Card(
                     color: isDark ? const Color(0xFF1E1E1E) : Colors.white,
@@ -196,98 +288,146 @@ class _FakturacePageState extends State<FakturacePage> {
                       ),
                     ),
                     margin: const EdgeInsets.only(bottom: 15),
-                    child: ListTile(
-                      contentPadding: const EdgeInsets.all(15),
-                      leading: CircleAvatar(
-                        backgroundColor: Colors.green.withOpacity(0.1),
-                        foregroundColor: Colors.green,
-                        radius: 25,
-                        child: const Icon(Icons.check_circle_outline),
-                      ),
-                      title: Row(
-                        mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                    child: Padding(
+                      padding: const EdgeInsets.all(15),
+                      child: Column(
+                        crossAxisAlignment: CrossAxisAlignment.start,
                         children: [
-                          Expanded(
-                            child: Text(
-                              '${data['cislo_zakazky']}',
-                              style: const TextStyle(
-                                fontWeight: FontWeight.bold,
-                                fontSize: 18,
+                          Row(
+                            mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                            children: [
+                              Text(
+                                '${data['cislo_faktury']}',
+                                style: const TextStyle(
+                                  fontWeight: FontWeight.bold,
+                                  fontSize: 18,
+                                ),
                               ),
-                            ),
+                              Text(
+                                '${(data['celkova_castka'] ?? 0.0).toStringAsFixed(2)} Kč',
+                                style: TextStyle(
+                                  fontWeight: FontWeight.bold,
+                                  color: isDark
+                                      ? Colors.white
+                                      : Colors.blue[900],
+                                  fontSize: 18,
+                                ),
+                              ),
+                            ],
                           ),
-                          Text(
-                            '${celkovaCenaSDph.toStringAsFixed(2)} Kč',
-                            style: const TextStyle(
-                              fontWeight: FontWeight.bold,
-                              color: Colors.green,
-                              fontSize: 16,
-                            ),
+                          const SizedBox(height: 10),
+                          const Divider(),
+                          const SizedBox(height: 10),
+                          Row(
+                            crossAxisAlignment: CrossAxisAlignment.start,
+                            children: [
+                              Expanded(
+                                child: Column(
+                                  crossAxisAlignment: CrossAxisAlignment.start,
+                                  children: [
+                                    Text(
+                                      'Zákazník: ${data['zakaznik_jmeno']}',
+                                      style: const TextStyle(
+                                        fontWeight: FontWeight.bold,
+                                      ),
+                                    ),
+                                    const SizedBox(height: 4),
+                                    Text(
+                                      'Vozidlo (SPZ): ${data['spz']}',
+                                      style: TextStyle(
+                                        color: Colors.grey[600],
+                                        fontSize: 13,
+                                      ),
+                                    ),
+                                    Text(
+                                      'K zakázce: ${data['cislo_zakazky']}',
+                                      style: TextStyle(
+                                        color: Colors.grey[600],
+                                        fontSize: 13,
+                                      ),
+                                    ),
+                                  ],
+                                ),
+                              ),
+                              Expanded(
+                                child: Column(
+                                  crossAxisAlignment: CrossAxisAlignment.end,
+                                  children: [
+                                    Text(
+                                      'Vystaveno: ${_formatDate(data['datum_vystaveni'])}',
+                                      style: TextStyle(
+                                        color: Colors.grey[600],
+                                        fontSize: 13,
+                                      ),
+                                    ),
+                                    const SizedBox(height: 4),
+                                    Text(
+                                      'Splatnost: ${_formatDate(data['datum_splatnosti'])}',
+                                      style: TextStyle(
+                                        fontWeight: FontWeight.bold,
+                                        color: jeUhrazeno
+                                            ? Colors.grey
+                                            : Colors.red,
+                                        fontSize: 13,
+                                      ),
+                                    ),
+                                  ],
+                                ),
+                              ),
+                            ],
                           ),
-                        ],
-                      ),
-                      subtitle: Padding(
-                        padding: const EdgeInsets.only(top: 8.0),
-                        child: Column(
-                          crossAxisAlignment: CrossAxisAlignment.start,
-                          children: [
-                            Text('Zákazník: ${zakaznik['jmeno'] ?? 'Neznámý'}'),
-                            Text(
-                              'Vozidlo: ${data['spz']} ${data['znacka'] != null ? '(${data['znacka']})' : ''}',
-                            ),
-                            Text(
-                              'Dokončeno: ${_formatDate(data['cas_prijeti'])}',
-                            ),
-                          ],
-                        ),
-                      ),
-                      trailing: IconButton(
-                        icon: const Icon(
-                          Icons.picture_as_pdf,
-                          color: Colors.redAccent,
-                          size: 30,
-                        ),
-                        tooltip: 'Vystavit fakturu',
-                        onPressed: () async {
-                          // Načtení nastavení servisu
-                          final docNast = await FirebaseFirestore.instance
-                              .collection('nastaveni_servisu')
-                              .doc(user.uid)
-                              .get();
-                          final sNazev =
-                              docNast.data()?['nazev_servisu'] ?? 'Servis';
-                          final sIco = docNast.data()?['ico_servisu'] ?? '';
-
-                          // Vygenerování PDF Faktury
-                          final pdfBytes =
-                              await GlobalPdfGenerator.generateDocument(
-                                data: data,
-                                servisNazev: sNazev,
-                                servisIco: sIco,
-                                typ: PdfTyp.faktura,
-                              );
-
-                          // Zobrazení v náhledu
-                          if (context.mounted) {
-                            Navigator.push(
-                              context,
-                              MaterialPageRoute(
-                                builder: (context) => Scaffold(
-                                  appBar: AppBar(
-                                    title: const Text('Náhled faktury'),
+                          const SizedBox(height: 15),
+                          Row(
+                            children: [
+                              Container(
+                                padding: const EdgeInsets.symmetric(
+                                  horizontal: 10,
+                                  vertical: 5,
+                                ),
+                                decoration: BoxDecoration(
+                                  color: barvaStavu.withOpacity(0.1),
+                                  borderRadius: BorderRadius.circular(8),
+                                  border: Border.all(
+                                    color: barvaStavu,
+                                    width: 1,
                                   ),
-                                  body: PdfPreview(
-                                    build: (format) => pdfBytes,
-                                    allowSharing: true,
-                                    allowPrinting: true,
-                                    canChangeOrientation: false,
-                                    canChangePageFormat: false,
+                                ),
+                                child: Text(
+                                  stavPlatby,
+                                  style: TextStyle(
+                                    color: barvaStavu,
+                                    fontWeight: FontWeight.bold,
+                                    fontSize: 12,
                                   ),
                                 ),
                               ),
-                            );
-                          }
-                        },
+                              const Spacer(),
+                              if (!jeUhrazeno)
+                                TextButton.icon(
+                                  icon: const Icon(
+                                    Icons.check_circle,
+                                    color: Colors.green,
+                                    size: 18,
+                                  ),
+                                  label: const Text(
+                                    'ZAPLACENO',
+                                    style: TextStyle(color: Colors.green),
+                                  ),
+                                  onPressed: () => _oznacitJakoUhrazene(docId),
+                                ),
+                              IconButton(
+                                icon: const Icon(
+                                  Icons.picture_as_pdf,
+                                  color: Colors.redAccent,
+                                  size: 24,
+                                ),
+                                tooltip: 'Zobrazit fakturu',
+                                onPressed: () =>
+                                    _zobrazitPdfFaktury(context, data),
+                              ),
+                            ],
+                          ),
+                        ],
                       ),
                     ),
                   );
