@@ -3,6 +3,7 @@ import 'package:firebase_auth/firebase_auth.dart';
 import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:intl/intl.dart';
 import '../core/constants.dart';
+import 'vozidla.dart'; // --- NOVÝ IMPORT PRO PROPOJENÍ NA KARTU VOZU ---
 
 class ZakazniciPage extends StatefulWidget {
   const ZakazniciPage({super.key});
@@ -309,21 +310,45 @@ class ZakaznikDetailScreen extends StatelessWidget {
                     return Card(
                       color: isDark ? const Color(0xFF1E1E1E) : Colors.grey[50],
                       margin: const EdgeInsets.only(bottom: 10),
-                      child: ListTile(
-                        leading: const Icon(
-                          Icons.directions_car,
-                          color: Colors.blue,
-                        ),
-                        title: Text(
-                          '${vozidlo['spz']}',
-                          style: const TextStyle(fontWeight: FontWeight.bold),
-                        ),
-                        subtitle: Text(
-                          '${vozidlo['znacka'] ?? ''} ${vozidlo['model'] ?? ''} ${vozidlo['motorizace'] != null ? '(${vozidlo['motorizace']})' : ''}',
-                        ),
-                        trailing: Text(
-                          vozidlo['rok_vyroby']?.toString() ?? '',
-                          style: const TextStyle(color: Colors.grey),
+                      // --- ZDE JE PŘIDÁN PROKLIK NA DETAIL VOZIDLA ---
+                      child: InkWell(
+                        borderRadius: BorderRadius.circular(10),
+                        onTap: () {
+                          Navigator.push(
+                            context,
+                            MaterialPageRoute(
+                              builder: (context) =>
+                                  VozidloDetailScreen(vozidloDocId: doc.id),
+                            ),
+                          );
+                        },
+                        child: ListTile(
+                          leading: const Icon(
+                            Icons.directions_car,
+                            color: Colors.blue,
+                          ),
+                          title: Text(
+                            '${vozidlo['spz']}',
+                            style: const TextStyle(fontWeight: FontWeight.bold),
+                          ),
+                          subtitle: Text(
+                            '${vozidlo['znacka'] ?? ''} ${vozidlo['model'] ?? ''} ${vozidlo['motorizace'] != null && vozidlo['motorizace'].toString().isNotEmpty ? '(${vozidlo['motorizace']})' : ''}',
+                          ),
+                          trailing: Row(
+                            mainAxisSize: MainAxisSize.min,
+                            children: [
+                              Text(
+                                vozidlo['rok_vyroby']?.toString() ?? '',
+                                style: const TextStyle(color: Colors.grey),
+                              ),
+                              const SizedBox(width: 8),
+                              const Icon(
+                                Icons.arrow_forward_ios,
+                                size: 16,
+                                color: Colors.grey,
+                              ),
+                            ],
+                          ),
                         ),
                       ),
                     );
@@ -339,7 +364,6 @@ class ZakaznikDetailScreen extends StatelessWidget {
             ),
             const SizedBox(height: 10),
             StreamBuilder<QuerySnapshot>(
-              // Odebráno .orderBy
               stream: FirebaseFirestore.instance
                   .collection('zakazky')
                   .where('servis_id', isEqualTo: servisId)
